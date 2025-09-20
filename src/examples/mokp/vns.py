@@ -3,7 +3,7 @@ import logging
 from pathlib import Path
 import random
 from functools import lru_cache
-from typing import Any, Callable, Iterable, cast
+from typing import Any, Callable, Iterable
 
 import numpy as np
 
@@ -37,18 +37,14 @@ def swap_op(solution: MOKPSolution, config: VNSConfig) -> Iterable[MOKPSolution]
     selected_items = np.where(solution_data == 1)[0]
     unselected_items = np.where(solution_data == 0)[0]
 
-    problem: MOKPProblem = cast(MOKPProblem, config.problem)
-    weights = problem.weights
-
     for i in shuffled(selected_items):
         for j in shuffled(unselected_items):
 
-            if weights[j] > weights[i]:
-                new_data = solution_data.copy()
-                new_data[i] = 0
-                new_data[j] = 1
+            new_data = solution_data.copy()
+            new_data[i] = 0
+            new_data[j] = 1
 
-                yield solution.new(new_data)
+            yield solution.new(new_data)
 
 
 def shuffled(lst: Iterable) -> list[Any]:
@@ -166,28 +162,28 @@ def prepare_optimizers(
         (acc_name, acc_func),
         (search_name, search_func),
         (shake_name, shake_func),
+        k,
     ) in itertools.product(
         acceptance_criteria,
         local_search_functions,
         shake_functions,
+        range(1, 8)
     ):
+        config_name = f"{acc_name} {search_name} k{k} {shake_name}"
 
-        for k in range(1, 8):
-            config_name = f"{acc_name} {search_name} k{k} {shake_name}"
+        config = VNSConfig(
+            problem=problem,
+            search_functions=[search_func] * k,
+            acceptance_criterion=acc_func,
+            shake_function=shake_func,
+            name=config_name,
+            version=4,
+        )
 
-            config = VNSConfig(
-                problem=problem,
-                search_functions=[search_func] * k,
-                acceptance_criterion=acc_func,
-                shake_function=shake_func,
-                name=config_name,
-                version=3,
-            )
+        def runner_func(run_time, _config=config):
+            return run_instance_with_config(run_time, str(instance_path), _config)
 
-            def runner_func(run_time, _config=config):
-                return run_instance_with_config(run_time, str(instance_path), _config)
-
-            optimizers[config_name] = runner_func
+        optimizers[config_name] = runner_func
 
     return optimizers
 
