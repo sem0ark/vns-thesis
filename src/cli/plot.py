@@ -70,6 +70,14 @@ def calculate_reference_front(
 
 
 def plot_runs(instance_path: Path, runs_grouped: Dict[str, List[SavedRun]]) -> None:
+    print(
+        "Plotting the results:"
+        "Controls:"
+        "Use h to hide all graphs except reference front."
+        "Use arrow keys to move legend around."
+        "You can also click on graphs to show/hide any specific one."
+    )
+
     problem_data = load_instance_data_json(instance_path)
 
     # Combine all solutions to create a single, shared reference front
@@ -205,6 +213,13 @@ def plot_runs(instance_path: Path, runs_grouped: Dict[str, List[SavedRun]]) -> N
         fig.canvas.draw_idle()
 
     def on_key_press(event):
+        directions = {
+            "up": [0, -50],
+            "down": [0, 50],
+            "left": [-50, 0],
+            "right": [50, 0],
+        }
+
         if event.key == "h":
             for line_name, line in lines_dict.items():
                 if line_name != "Reference Front":
@@ -214,6 +229,13 @@ def plot_runs(instance_path: Path, runs_grouped: Dict[str, List[SavedRun]]) -> N
                 if not plotted_line.get_visible():
                     leg_line.set_alpha(0.1)
 
+            fig.canvas.draw_idle()
+        elif event.key in directions:
+            x, y = directions[event.key]
+            bbox = legend.get_bbox_to_anchor()
+            bbox = Bbox.from_bounds(bbox.x0 + x, bbox.y0 + y, bbox.width, bbox.height)
+            tr = legend.axes.transAxes.inverted()
+            legend.set_bbox_to_anchor(bbox.transformed(tr))
             fig.canvas.draw_idle()
 
     fig.canvas.mpl_connect("scroll_event", on_scroll)

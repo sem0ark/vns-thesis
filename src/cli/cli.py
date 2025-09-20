@@ -75,10 +75,10 @@ def _load_and_filter_runs(
                 data = json.load(f)
 
             metadata = Metadata(**data["metadata"])
-            config_name = metadata.name.lower()
+            config_name = metadata.name
 
             if filter_groups and not any(
-                all(filter_name in config_name for filter_name in filter_group)
+                all(filter_name in config_name.lower() for filter_name in filter_group)
                 for filter_group in filter_groups
             ):
                 continue
