@@ -1,0 +1,22 @@
+{
+    "metadata": {
+        "objectives": 2,
+        "weights": 1
+    },
+    "data": {
+        "capacity": [10, 2],
+        "weights": [
+            [10, 10, 10],
+            [2, 2, 2]
+        ],
+        "objectives": [
+            [11, 10, 8],
+            [8,  10, 11]
+        ]
+    },
+    "reference_front": [
+        [11, 8],
+        [8, 11],
+        [10, 10]
+    ]
+}

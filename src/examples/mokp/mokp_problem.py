@@ -1,0 +1,98 @@
+import json
+import random
+from typing import Any, Iterable
+
+import numpy as np
+
+from src.vns.abstract import Problem, Solution
+
+type MOKPSolution = Solution[np.ndarray]
+
+
+class _MOKPSolution(Solution[np.ndarray]):
+    def equals(self, other: Any) -> bool:
+        return all(
+            abs(o1 - o2) < 1e-6 for o1, o2 in zip(self.objectives, other.objectives)
+        )
+
+
+class MOKPProblem(Problem[np.ndarray]):
+    def __init__(
+        self,
+        weights: list[list[int]],
+        profits: list[list[int]],
+        capacity: int | list[int],
+    ):
+        super().__init__(self.evaluate, self.generate_initial_solutions)
+
+        self.weights = np.array(weights, dtype=int)
+        self.profits = np.array(profits, dtype=int)
+        self.capacity = np.array(capacity, dtype=int)
+
+        self.num_items = self.weights.shape[1]
+        self.num_objectives = self.profits.shape[0]
+        self.num_limits = self.weights.shape[0]
+
+    def generate_initial_solutions(
+        self, num_solutions: int = 50
+    ) -> Iterable[MOKPSolution]:
+        """
+        Generates a specified number of random feasible solutions for the MOKP.
+        Each solution is created by iterating through items in a random order
+        and adding them to the knapsack if they do not violate the capacity constraint.
+        """
+        solutions = []
+        for _ in range(num_solutions):
+            solution_data = np.zeros(self.num_items, dtype=int)
+            items_to_add = list(range(self.num_items))
+            random.shuffle(items_to_add)
+
+            for item_idx in items_to_add:
+                temp_data = solution_data.copy()
+                temp_data[item_idx] = 1
+                if self.is_feasible(temp_data):
+                    solution_data = temp_data
+
+            solutions.append(_MOKPSolution(solution_data, self))
+        return solutions
+
+    def is_feasible(self, solution_data: np.ndarray) -> bool:
+        """Checks if a solution is feasible with respect to knapsack capacity."""
+        total_weight = np.sum(solution_data * self.weights, axis=1)
+        return np.all(total_weight <= self.capacity, axis=0)
+
+    def evaluate(self, solution: MOKPSolution) -> tuple[float, ...]:
+        """Calculates the profit for each objective."""
+        solution_data = solution.data
+        mult = 1 if self.is_feasible(solution.data) else -1
+
+        result = tuple(
+            mult * np.sum(solution_data * self.profits[i])
+            for i in range(self.num_objectives)
+        )
+        return result
+
+    @staticmethod
+    def calculate_solution_distance(sol1: MOKPSolution, sol2: MOKPSolution) -> float:
+        """Calculates a distance between two MOKP solutions (binary vectors)."""
+        return float(np.sum(sol1.data != sol2.data))
+
+    @staticmethod
+    def load(filename: str) -> "MOKPProblem":
+        """
+        Creates a mock MOKP problem for the example.
+        In a real scenario, this would load from a file like MOCOLib instances.
+        """
+        try:
+            with open(filename, "r") as f:
+                configuration = json.load(f)
+        except FileNotFoundError:
+            raise ValueError(f"Error: File not found at {filename}")
+        except Exception as e:
+            raise ValueError(f"Error reading file {filename}: {e}")
+
+        weights = configuration["data"]["weights"]
+        profits = configuration["data"]["objectives"]
+        capacity = configuration["data"]["capacity"]
+
+        return MOKPProblem(weights, profits, capacity)
