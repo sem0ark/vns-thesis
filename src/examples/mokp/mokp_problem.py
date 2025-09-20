@@ -3,6 +3,7 @@ import random
 from typing import Any, Iterable
 
 import numpy as np
+from pymoo.core.problem import ElementwiseProblem
 
 from src.vns.abstract import Problem, Solution
 
@@ -96,3 +97,38 @@ class MOKPProblem(Problem[np.ndarray]):
         capacity = configuration["data"]["capacity"]
 
         return MOKPProblem(weights, profits, capacity)
+
+class MOKPPymoo(ElementwiseProblem):
+    """
+    Multi-Objective Knapsack Problem.
+
+    A problem is defined by inheriting from the Problem class and
+    implementing the _evaluate method.
+    """
+
+    def __init__(self, problem: MOKPProblem):
+        super().__init__(
+            n_var=problem.num_items,
+            n_obj=problem.num_objectives,
+            n_constr=problem.num_limits,
+            xl=0.0,
+            xu=1.0,
+            vtype=bool,
+        )
+        self.problem_instance = problem
+
+    def _evaluate(self, x, out, *args, **kwargs):
+        """
+        Evaluate a solution `x`.
+        `x` is a NumPy array representing a single solution (a vector of booleans).
+        """
+        x = np.round(x) # NGSA instance is still resulting in array of floats
+        total_profits = np.sum(x * self.problem_instance.profits, axis=1)
+
+        # Objectives: We minimize the negative profits
+        out["F"] = -total_profits
+
+        # Constraints: A solution is feasible if its weight is within capacity for all limits.
+        # This will be an array of values, one for each constraint.
+        total_weights = np.sum(x * self.problem_instance.weights, axis=1)
+        out["G"] = total_weights - self.problem_instance.capacity

@@ -1,13 +1,8 @@
 import logging
 import time
-from pathlib import Path
-
-import numpy as np
 
 from src.vns.abstract import Solution
 from src.vns.optimizer import VNSOptimizer
-
-BASE = Path(__file__).parent.parent.parent / "runs"
 
 
 def run_vns_optimizer(

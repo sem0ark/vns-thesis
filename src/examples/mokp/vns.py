@@ -136,8 +136,8 @@ def prepare_optimizers(
     optimizers: dict[str, Callable[[float], SavedRun]] = {}
 
     acceptance_criteria = [
-        ("batch", AcceptBatchBigger()),
-        ("skewed", AcceptBatchSkewedBigger(1, MOKPProblem.calculate_solution_distance)),
+        ("BVNS", AcceptBatchBigger()),
+        ("SVNS", AcceptBatchSkewedBigger(1, MOKPProblem.calculate_solution_distance)),
     ]
     local_search_approaches = [
         ("BI", best_improvement),
@@ -145,11 +145,11 @@ def prepare_optimizers(
         ("noop", noop),
     ]
     neighborhood_operations = [
-        ("add_remove", add_remove_op),
-        ("swap", swap_op),
+        ("op_ar", add_remove_op),
+        ("op_swap", swap_op),
     ]
     shake_functions = [
-        ("shake_add_remove", shake_add_remove),
+        ("shake_ar", shake_add_remove),
         ("shake_swap", shake_swap),
     ]
 
@@ -164,15 +164,18 @@ def prepare_optimizers(
         neighborhood_operations,
         shake_functions,
     ):
-        if search_name == "noop" and op_name != "add_remove":
-            continue
+        if search_name == "noop":
+            acc_name = "RVNS"
+
+            if op_name != "add_remove":
+                continue
 
         search_func_instance = (
             search_func_factory(op_func) if search_name != "noop" else noop()
         )
 
-        for k in [1, 3, 5, 7]:
-            config_name = f"{acc_name}_{search_name}_{op_name}_k{k}_{shake_name}"
+        for k in range(1, 8):
+            config_name = f"{acc_name} {search_name} {op_name} k{k} {shake_name}"
 
             config = VNSConfig(
                 problem=problem,
