@@ -3,7 +3,7 @@ import logging
 from pathlib import Path
 import random
 from functools import lru_cache
-from typing import Any, Callable, Iterable
+from typing import Any, Callable, Iterable, cast
 
 import numpy as np
 
@@ -37,13 +37,18 @@ def swap_op(solution: MOKPSolution, config: VNSConfig) -> Iterable[MOKPSolution]
     selected_items = np.where(solution_data == 1)[0]
     unselected_items = np.where(solution_data == 0)[0]
 
+    problem: MOKPProblem = cast(MOKPProblem, config.problem)
+    weights = problem.weights
+
     for i in shuffled(selected_items):
         for j in shuffled(unselected_items):
-            new_data = solution_data.copy()
-            new_data[i] = 0
-            new_data[j] = 1
 
-            yield solution.new(new_data)
+            if weights[j] > weights[i]:
+                new_data = solution_data.copy()
+                new_data[i] = 0
+                new_data[j] = 1
+
+                yield solution.new(new_data)
 
 
 def shuffled(lst: Iterable) -> list[Any]:
@@ -136,17 +141,21 @@ def prepare_optimizers(
     optimizers: dict[str, Callable[[float], SavedRun]] = {}
 
     acceptance_criteria = [
-        ("BVNS", AcceptBatchBigger()),
-        ("SVNS", AcceptBatchSkewedBigger(1, MOKPProblem.calculate_solution_distance)),
+        ("batch", AcceptBatchBigger()),
+        ("skewed", AcceptBatchSkewedBigger(1, MOKPProblem.calculate_solution_distance)),
     ]
-    local_search_approaches = [
-        ("BI", best_improvement),
-        ("FI", first_improvement),
-        ("noop", noop),
-    ]
-    neighborhood_operations = [
-        ("op_ar", add_remove_op),
-        ("op_swap", swap_op),
+    local_search_functions = [
+        ("noop", noop()),
+        *[
+            (f"{search_name}_{op_name}", search_func_factory(op_func))
+            for (
+                (search_name, search_func_factory),
+                (op_name, op_func)
+            ) in itertools.product(
+                [("BI", best_improvement), ("FI", first_improvement)],
+                [("op_ar", add_remove_op), ("op_swap", swap_op)]
+            )
+        ]
     ]
     shake_functions = [
         ("shake_ar", shake_add_remove),
@@ -155,35 +164,24 @@ def prepare_optimizers(
 
     for (
         (acc_name, acc_func),
-        (search_name, search_func_factory),
-        (op_name, op_func),
+        (search_name, search_func),
         (shake_name, shake_func),
     ) in itertools.product(
         acceptance_criteria,
-        local_search_approaches,
-        neighborhood_operations,
+        local_search_functions,
         shake_functions,
     ):
-        if search_name == "noop":
-            acc_name = "RVNS"
-
-            if op_name != "add_remove":
-                continue
-
-        search_func_instance = (
-            search_func_factory(op_func) if search_name != "noop" else noop()
-        )
 
         for k in range(1, 8):
-            config_name = f"{acc_name} {search_name} {op_name} k{k} {shake_name}"
+            config_name = f"{acc_name} {search_name} k{k} {shake_name}"
 
             config = VNSConfig(
                 problem=problem,
-                search_functions=[search_func_instance] * k,
+                search_functions=[search_func] * k,
                 acceptance_criterion=acc_func,
                 shake_function=shake_func,
                 name=config_name,
-                version=2,
+                version=3,
             )
 
             def runner_func(run_time, _config=config):

@@ -1,7 +1,7 @@
 from src.vns.abstract import NeighborhoodOperator, SearchFunction, Solution, VNSConfig
 
 
-def noop():
+def noop(*_args):
     def search(initial: Solution, _config: VNSConfig) -> Solution:
         return initial
 

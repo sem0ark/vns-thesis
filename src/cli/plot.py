@@ -70,13 +70,12 @@ def calculate_reference_front(
 
 
 def plot_runs(instance_path: Path, runs_grouped: Dict[str, List[SavedRun]]) -> None:
-    print(
-        "Plotting the results:"
-        "Controls:"
-        "Use h to hide all graphs except reference front."
-        "Use arrow keys to move legend around."
-        "You can also click on graphs to show/hide any specific one."
-    )
+    print("""Plotting the results:
+Controls:
+Press 'h' to hide all graphs except reference front.
+Use arrow keys to move legend around.
+You can also click on graphs in legend to show/hide any specific one.
+""")
 
     problem_data = load_instance_data_json(instance_path)
 
@@ -149,13 +148,12 @@ def plot_runs(instance_path: Path, runs_grouped: Dict[str, List[SavedRun]]) -> N
     (ref_line,) = ax.plot(
         reference_front[:, 0],
         reference_front[:, 1],
-        marker="o",
         linestyle="-",
         label="Reference Front",
         color="red",
         markersize=8,
         fillstyle="none",
-        markeredgewidth=2,
+        linewidth=2,
     )
     lines_dict["Reference Front"] = ref_line
 
@@ -163,7 +161,6 @@ def plot_runs(instance_path: Path, runs_grouped: Dict[str, List[SavedRun]]) -> N
         run_name = data["name"]
         merged_front = data["front"]
 
-        # Plot and store the line object
         (line,) = ax.plot(
             merged_front[:, 0],
             merged_front[:, 1],

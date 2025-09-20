@@ -65,7 +65,7 @@ def _load_and_filter_runs(
 
     runs_by_name = {}
     filter_groups = [
-        [f for f in filter_group.strip().lower().split(",")]
+        [f.strip() for f in filter_group.strip().lower().split(",")]
         for filter_group in filter_configs.split(" or ")
     ]
 
@@ -110,7 +110,6 @@ def _load_and_filter_runs(
 class CLI:
     def __init__(self) -> None:
         self.runners: dict[str, list[tuple[str, Callable[[str, float], SavedRun]]]] = {}
-        self.version = 1
 
     def register_runner(
         self, name: str, configs: list[tuple[str, Callable[[str, float], SavedRun]]]
@@ -225,7 +224,7 @@ class CLI:
                 instance = args["instance"]
 
                 filter_groups = [
-                    [f for f in filter_group.strip().lower().split(",")]
+                    [f.strip() for f in filter_group.strip().lower().split(",")]
                     for filter_group in (filter_configs or "").split(" or ")
                 ]
                 configs_filtered = {
