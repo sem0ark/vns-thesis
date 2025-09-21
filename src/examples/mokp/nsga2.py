@@ -26,21 +26,20 @@ def solve_mokp_ngsa2(instance_path: str, run_seconds: float):
 
     if res.X is not None:
         nd_sorting = NonDominatedSorting()
-        negated_F = res.F
-        non_dominated_indices = nd_sorting.do(negated_F, only_non_dominated_front=True)
-        final_solutions_F = negated_F[non_dominated_indices]
+        non_dominated_indices = nd_sorting.do(res.F, only_non_dominated_front=True)
+        final_solutions_F = res.F[non_dominated_indices]
     else:
         final_solutions_F = np.array([])
 
     solutions_data = [
-        SavedSolution(cast(np.ndarray, -sol).tolist()) for sol in final_solutions_F
+        SavedSolution(cast(np.ndarray, sol).tolist()) for sol in final_solutions_F
     ]
 
     return SavedRun(
         metadata=Metadata(
             run_time_seconds=int(run_seconds),
             name="NSGA2",
-            version=2,
+            version=3,
             problem_name="mokp",
             instance_name=Path(instance_path).stem,
         ),
