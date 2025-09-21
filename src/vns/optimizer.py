@@ -36,6 +36,7 @@ class ElementwiseVNSOptimizer[T](VNSOptimizerAbstract[T]):
         Runs the VNS optimization process.
         Returns the best solution found (for single-obj) or the Pareto front (for multi-obj).
         """
+        self.acceptance_criterion.clear()
         for sol in self.problem.get_initial_solutions():
             self.acceptance_criterion.accept(sol)
 
@@ -85,6 +86,7 @@ class FrontwiseVNSOptimizer[T](VNSOptimizerAbstract[T]):
         Runs the VNS optimization process.
         Returns the best solution found (for single-obj) or the Pareto front (for multi-obj).
         """
+        self.acceptance_criterion.clear()
         for sol in self.problem.get_initial_solutions():
             self.acceptance_criterion.accept(sol)
 

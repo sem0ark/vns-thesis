@@ -195,7 +195,7 @@ def prepare_optimizers(
             acceptance_criterion=acc_func,
             shake_function=shake_func,
             name=config_name,
-            version=5,
+            version=6,
         )
 
         def runner_func(run_time, _config=config):
@@ -250,7 +250,7 @@ def prepare_optimizers_mo_vnd(
             acceptance_criterion=acc_func,
             shake_function=shake_func,
             name=config_name,
-            version=5,
+            version=6,
         )
 
         def runner_func(run_time, _config=config):
@@ -266,7 +266,6 @@ def register_cli(cli: CLI) -> None:
         def run(instance_path, run_time, _optimizer_name=optimizer_name):
             return {
                 **prepare_optimizers(instance_path),
-                **prepare_optimizers_mo_vnd(instance_path),
             }[_optimizer_name](run_time)
 
         return run
@@ -276,9 +275,5 @@ def register_cli(cli: CLI) -> None:
         [
             (optimizer_name, make_runner(optimizer_name))
             for optimizer_name in prepare_optimizers(None).keys()
-        ]
-        + [
-            (optimizer_name, make_runner(optimizer_name))
-            for optimizer_name in prepare_optimizers_mo_vnd(None).keys()
         ],
     )
