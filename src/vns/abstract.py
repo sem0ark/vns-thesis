@@ -1,30 +1,45 @@
 from dataclasses import dataclass
+from enum import Enum
 from functools import cached_property
-from typing import Any, Callable, Generic, Iterable, Self, TypeVar
+from typing import Any, Callable, Iterable, Self, TypeVar
 
 T = TypeVar("T")
 
 
+class OptimizationDirection(Enum):
+    """
+    Represents whether a given objective should be minimized or maximized.
+    """
+
+    MIN = 1
+    MAX = -1
+
+
 @dataclass
-class Problem(Generic[T]):
+class Problem[T]:
     """
     Abstract interface for defining an optimization problem.
     Concrete problems (e.g., TSP, knapsack) will implement this.
     """
 
     objective_function: Callable[["Solution[T]"], tuple[float, ...]]
-    """Objective function for this problem."""
+    """Objective function for this problem, expected minimization."""
 
     get_initial_solutions: Callable[[], Iterable["Solution[T]"]]
     """Get a random solution to start with."""
 
 
 @dataclass
-class Solution(Generic[T]):
+class Solution[T]:
     """Abstract base class for a solution to a given problem."""
 
-    data: T  # Problem-specific representation (list, array, etc.)
+    data: T
+    """Problem-specific representation (list, array, etc.)."""
     problem: Problem[T]
+    """Link to the problem instance."""
+
+    def __hash__(self) -> int:
+        return self.get_hash()
 
     def __eq__(self, other) -> bool:
         if isinstance(other, self.__class__):
@@ -38,8 +53,13 @@ class Solution(Generic[T]):
     def new(self, data: Any) -> Self:
         return self.__class__(data, self.problem)
 
+    def get_hash(self) -> int:
+        """Returns a hash of a solution to use for comparison.
+        Default implementation gives a hash of solution's objectives."""
+        return hash(self.objectives)
+
     def equals(self, other: Self) -> bool:
-        """Checks whether solutions of the same type also completely the same.
+        """Checks whether solutions are the same.
         Default implementation considers solutions as equal if their objective value is the same.
         """
         return all(
@@ -50,7 +70,7 @@ class Solution(Generic[T]):
         return self.data
 
 
-class AcceptanceCriterion(Generic[T]):
+class AcceptanceCriterion[T]:
     """
     Abstract interface for deciding whether to accept a new solution.
     Used to compare and store currently the best solutions found.
@@ -63,7 +83,7 @@ class AcceptanceCriterion(Generic[T]):
         self, new_solution: Solution[T], current_solution: Solution[T]
     ) -> bool:
         """
-        Determines if 'new_solution' is better than 'current_solution' based on Pareto dominance.
+        Determines if 'new_solution' is better than 'current_solution' based on Pareto dominance (minimization).
         """
         raise NotImplementedError
 
@@ -87,28 +107,35 @@ class AcceptanceCriterion(Generic[T]):
         raise NotImplementedError
 
 
-NeighborhoodOperator = Callable[[Solution[T], "VNSConfig"], Iterable[Solution[T]]]
-ShakeFunction = Callable[[Solution[T], int, "VNSConfig"], Solution[T]]
-SearchFunction = Callable[[Solution[T], "VNSConfig"], Solution[T]]
+class VNSOptimizerAbstract[T]:
+    """Abstract VNS optimizer, also defines the context passed between program elements."""
+
+    def __init__(self, name: str, version: int, problem: Problem[T]) -> None:
+        """Init.
+
+        Args:
+            name (str): Name of the optimizer configuration, useful for logging, debugging, etc.
+            version (int): Version of optimizer configuration, useful for serialization and comparison.
+            problem (Problem[T]): Problem instance used for optimization.
+        """
+        self.name = name
+        self.version = version
+        self.problem = problem
+
+    def optimize(self) -> Iterable[bool]:
+        """
+        Runs the VNS optimization process.
+        """
+        raise NotImplementedError
+
+    def get_solutions(self) -> list[Solution]:
+        """
+        Runs the current best set of solutions.
+        Returns the best solution found (for single-obj) or the Pareto front (for multi-obj).
+        """
+        raise NotImplementedError
 
 
-@dataclass
-class VNSConfig(Generic[T]):
-    """Configuration for an abstract VNS optimizer."""
-
-    problem: Problem[T]
-
-    search_functions: list[SearchFunction[T]]
-    """Neighborhood operators for a given problem, ordered by increasing size/complexity."""
-
-    shake_function: ShakeFunction
-
-    acceptance_criterion: AcceptanceCriterion[Solution[T]]
-    name: str = "default_name"
-    version: int = 1
-
-    def __post_init__(self):
-        if not self.search_functions:
-            raise ValueError(
-                "At least one neighborhood operator must be provided or defined by the problem."
-            )
+NeighborhoodOperator = Callable[
+    [Solution[T], VNSOptimizerAbstract[T]], Iterable[Solution[T]]
+]

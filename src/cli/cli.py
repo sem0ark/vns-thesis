@@ -150,8 +150,17 @@ class CLI:
             default="",
             type=str,
         )
+        @click.option(
+            "-d",
+            "--make-objectives-positive",
+            help="Define, whether the plotted objectives should be positive or not. It allows to flip objective values that have been negated with the goal of maximization.",
+            default=True,
+            type=bool,
+        )
         @click.pass_context
-        def show_command(ctx, problem, instance, max_time, filter_configs):
+        def show_command(
+            ctx, problem, instance, max_time, filter_configs, make_objectives_positive
+        ):
             ctx.ensure_object(dict)
             ctx.obj["problem_name"] = problem
             ctx.obj["instance_path"] = Path(instance)
@@ -161,6 +170,8 @@ class CLI:
             ctx.obj["filter_configs"] = filter_configs
             ctx.obj["max_time_seconds"] = parse_time_string(max_time)
 
+            ctx.obj["make_objectives_positive"] = make_objectives_positive
+
         @show_command.command(name="plot", help="Plot the metrics.")
         @click.pass_context
         def show_plot(ctx):
@@ -168,12 +179,16 @@ class CLI:
             instance_name = ctx.obj["instance_name"]
             max_time_seconds = ctx.obj["max_time_seconds"]
             filter_configs = ctx.obj["filter_configs"]
+            make_objectives_positive = ctx.obj["make_objectives_positive"]
 
             click.echo("Plotting metrics...")
             runs = _load_and_filter_runs(
-                problem_name, instance_name, max_time_seconds, filter_configs
+                problem_name,
+                instance_name,
+                max_time_seconds,
+                filter_configs,
             )
-            plot_runs(ctx.obj["instance_path"], runs)
+            plot_runs(ctx.obj["instance_path"], runs, make_objectives_positive)
 
         @show_command.command(name="metrics", help="Display raw metrics.")
         @click.pass_context

@@ -51,25 +51,29 @@ def calculate_reference_front(
         return np.array([])
 
     combined_objectives = np.array(all_objectives)
-
-    # Negate objectives to convert maximization to minimization
-    negated_objectives = -combined_objectives
-
     nd_sorting = NonDominatedSorting()
     non_dominated_indices = nd_sorting.do(
-        negated_objectives, only_non_dominated_front=True
+        combined_objectives, only_non_dominated_front=True
     )
 
-    # Return the non-dominated front with original (non-negated) values
     reference_front = combined_objectives[non_dominated_indices]
-
-    # Remove duplicates from the reference front
     reference_front = np.unique(reference_front, axis=0)
 
     return reference_front
 
 
-def plot_runs(instance_path: Path, runs_grouped: Dict[str, List[SavedRun]]) -> None:
+def flip_objectives_to_positive(front: np.ndarray) -> np.ndarray:
+    for i in range(front.shape[1]):
+        if np.all(front[:, i] < 0):
+            front[:, i] *= -1
+    return front
+
+
+def plot_runs(
+    instance_path: Path,
+    runs_grouped: Dict[str, List[SavedRun]],
+    ensure_objectives_positive=True,
+) -> None:
     print("""Plotting the results:
 Controls:
 Press 'h' to hide all graphs except reference front.
@@ -84,6 +88,9 @@ You can also click on graphs in legend to show/hide any specific one.
     reference_front = calculate_reference_front(
         all_runs, problem_data.get("reference_front")
     )
+
+    if ensure_objectives_positive:
+        reference_front = flip_objectives_to_positive(reference_front)
 
     if reference_front.size == 0:
         logging.error(
@@ -120,18 +127,20 @@ You can also click on graphs in legend to show/hide any specific one.
             continue
 
         combined_objectives = np.array(merged_front_objectives)
-        negated_objectives = -combined_objectives
 
         nd_sorting = NonDominatedSorting()
         non_dominated_indices = nd_sorting.do(
-            negated_objectives, only_non_dominated_front=True
+            combined_objectives, only_non_dominated_front=True
         )
         merged_front = combined_objectives[non_dominated_indices]
 
         if merged_front.size > 0:
-            hypervolume = hv_indicator.do(-merged_front)
+            hypervolume = hv_indicator.do(merged_front)
         else:
             hypervolume = -np.inf
+
+        if ensure_objectives_positive:
+            merged_front = flip_objectives_to_positive(merged_front)
 
         plot_data.append(
             {"name": run_name, "front": merged_front, "hypervolume": hypervolume}
@@ -143,19 +152,6 @@ You can also click on graphs in legend to show/hide any specific one.
     fig.subplots_adjust(right=0.7)
 
     lines_dict = {}
-
-    # Plot the reference front
-    (ref_line,) = ax.plot(
-        reference_front[:, 0],
-        reference_front[:, 1],
-        linestyle="-",
-        label="Reference Front",
-        color="red",
-        markersize=8,
-        fillstyle="none",
-        linewidth=2,
-    )
-    lines_dict["Reference Front"] = ref_line
 
     for data in sorted_plot_data:
         run_name = data["name"]
@@ -170,6 +166,19 @@ You can also click on graphs in legend to show/hide any specific one.
             alpha=0.6,
         )
         lines_dict[run_name] = line
+
+    # Plot the reference front
+    (ref_line,) = ax.plot(
+        reference_front[:, 0],
+        reference_front[:, 1],
+        linestyle="-",
+        label="Reference Front",
+        color="red",
+        markersize=8,
+        fillstyle="none",
+        linewidth=2,
+    )
+    lines_dict["Reference Front"] = ref_line
 
     if all_runs:
         metadata = all_runs[0].metadata

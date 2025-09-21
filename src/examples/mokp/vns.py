@@ -8,10 +8,10 @@ from typing import Any, Callable, Iterable
 import numpy as np
 
 from src.examples.mokp.mokp_problem import MOKPProblem, MOKPSolution
-from src.vns.abstract import VNSConfig
-from src.vns.acceptance import AcceptBatchBigger, AcceptBatchSkewedBigger
+from src.vns.abstract import VNSOptimizerAbstract
+from src.vns.acceptance import AcceptBatch, AcceptBatchSkewed
 from src.vns.local_search import best_improvement, first_improvement, noop
-from src.vns.optimizer import VNSOptimizer
+from src.vns.optimizer import ElementwiseVNSOptimizer
 
 from src.examples.vns_runner_utils import run_vns_optimizer
 from src.cli.cli import CLI, SavedRun, Metadata, SavedSolution
@@ -19,7 +19,9 @@ from src.cli.cli import CLI, SavedRun, Metadata, SavedSolution
 logger = logging.getLogger("mokp-solver")
 
 
-def add_remove_op(solution: MOKPSolution, config: VNSConfig) -> Iterable[MOKPSolution]:
+def add_remove_op(
+    solution: MOKPSolution, config: VNSOptimizerAbstract
+) -> Iterable[MOKPSolution]:
     """Generates neighbors by adding or removing a single item."""
     solution_data = solution.data
     num_items = len(solution_data)
@@ -30,7 +32,9 @@ def add_remove_op(solution: MOKPSolution, config: VNSConfig) -> Iterable[MOKPSol
         yield solution.new(new_data)
 
 
-def swap_op(solution: MOKPSolution, config: VNSConfig) -> Iterable[MOKPSolution]:
+def swap_op(
+    solution: MOKPSolution, config: VNSOptimizerAbstract
+) -> Iterable[MOKPSolution]:
     """Generates neighbors by swapping one selected item with one unselected item."""
     solution_data = solution.data
 
@@ -39,7 +43,6 @@ def swap_op(solution: MOKPSolution, config: VNSConfig) -> Iterable[MOKPSolution]
 
     for i in shuffled(selected_items):
         for j in shuffled(unselected_items):
-
             new_data = solution_data.copy()
             new_data[i] = 0
             new_data[j] = 1
@@ -54,7 +57,7 @@ def shuffled(lst: Iterable) -> list[Any]:
 
 
 def shake_add_remove(
-    solution: MOKPSolution, k: int, _config: VNSConfig
+    solution: MOKPSolution, k: int, _config: VNSOptimizerAbstract
 ) -> MOKPSolution:
     """
     Randomly adds or removes 'k' items.
@@ -78,7 +81,9 @@ def shake_add_remove(
     return solution.new(solution_data)
 
 
-def shake_swap(solution: MOKPSolution, k: int, _config: VNSConfig) -> MOKPSolution:
+def shake_swap(
+    solution: MOKPSolution, k: int, _config: VNSOptimizerAbstract
+) -> MOKPSolution:
     """
     Randomly swaps a selected item with an unselected item 'k' times.
     """
@@ -103,18 +108,18 @@ def shake_swap(solution: MOKPSolution, k: int, _config: VNSConfig) -> MOKPSoluti
 def run_instance_with_config(
     run_time_seconds: float,
     instance_path: str,
-    optimizer_config: VNSConfig,
+    optimizer: VNSOptimizerAbstract,
 ) -> SavedRun:
     solutions = run_vns_optimizer(
         run_time_seconds,
-        VNSOptimizer(optimizer_config),
+        optimizer,
     )
 
     return SavedRun(
         metadata=Metadata(
             run_time_seconds=int(run_time_seconds),
-            name=optimizer_config.name,
-            version=optimizer_config.version,
+            name=optimizer.name,
+            version=optimizer.version,
             problem_name="mokp",
             instance_name=Path(instance_path).stem,
         ),
@@ -132,13 +137,24 @@ def prepare_optimizers(
     """
     Automatically generates all possible optimizer configurations using itertools.product.
     """
-    problem: Any = MOKPProblem.load(instance_path) if instance_path else None
 
     optimizers: dict[str, Callable[[float], SavedRun]] = {}
+    profit_sums = []
+    problem: Any = None
+
+    if instance_path:
+        problem = MOKPProblem.load(instance_path)
+
+        profit_sums = np.sum(problem.profits, axis=1)
+        total = np.sum(profit_sums)
+        profit_sums = (profit_sums / total * profit_sums.size).tolist()
 
     acceptance_criteria = [
-        ("batch", AcceptBatchBigger()),
-        ("skewed", AcceptBatchSkewedBigger(1, MOKPProblem.calculate_solution_distance)),
+        ("batch", AcceptBatch()),
+        (
+            "skewed",
+            AcceptBatchSkewed(profit_sums, MOKPProblem.calculate_solution_distance),
+        ),
     ]
     local_search_functions = [
         ("noop", noop()),
@@ -146,12 +162,12 @@ def prepare_optimizers(
             (f"{search_name}_{op_name}", search_func_factory(op_func))
             for (
                 (search_name, search_func_factory),
-                (op_name, op_func)
+                (op_name, op_func),
             ) in itertools.product(
                 [("BI", best_improvement), ("FI", first_improvement)],
-                [("op_ar", add_remove_op), ("op_swap", swap_op)]
+                [("op_ar", add_remove_op), ("op_swap", swap_op)],
             )
-        ]
+        ],
     ]
     shake_functions = [
         ("shake_ar", shake_add_remove),
@@ -164,20 +180,17 @@ def prepare_optimizers(
         (shake_name, shake_func),
         k,
     ) in itertools.product(
-        acceptance_criteria,
-        local_search_functions,
-        shake_functions,
-        range(1, 8)
+        acceptance_criteria, local_search_functions, shake_functions, range(1, 8)
     ):
-        config_name = f"{acc_name} {search_name} k{k} {shake_name}"
+        config_name = f"vns {acc_name} {search_name} k{k} {shake_name}"
 
-        config = VNSConfig(
+        config = ElementwiseVNSOptimizer(
             problem=problem,
             search_functions=[search_func] * k,
             acceptance_criterion=acc_func,
             shake_function=shake_func,
             name=config_name,
-            version=4,
+            version=5,
         )
 
         def runner_func(run_time, _config=config):

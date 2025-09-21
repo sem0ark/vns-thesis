@@ -32,12 +32,14 @@ def solve_mokp_ngsa2(instance_path: str, run_seconds: float):
     else:
         final_solutions_F = np.array([])
 
-    solutions_data = [SavedSolution(cast(np.ndarray, -sol).tolist()) for sol in final_solutions_F]
+    solutions_data = [
+        SavedSolution(cast(np.ndarray, -sol).tolist()) for sol in final_solutions_F
+    ]
 
     return SavedRun(
         metadata=Metadata(
             run_time_seconds=int(run_seconds),
-            name="NGSA2",
+            name="NSGA2",
             version=2,
             problem_name="mokp",
             instance_name=Path(instance_path).stem,

@@ -1,9 +1,10 @@
 import json
 import random
-from typing import Any, Iterable
+from typing import Iterable
 
 import numpy as np
 from pymoo.core.problem import ElementwiseProblem
+import xxhash
 
 from src.vns.abstract import Problem, Solution
 
@@ -11,10 +12,13 @@ type MOKPSolution = Solution[np.ndarray]
 
 
 class _MOKPSolution(Solution[np.ndarray]):
-    def equals(self, other: Any) -> bool:
-        return all(
-            abs(o1 - o2) < 1e-6 for o1, o2 in zip(self.objectives, other.objectives)
-        )
+    def equals(self, other: Solution[np.ndarray]) -> bool:
+        return hash(self) == hash(other)
+
+    def get_hash(self) -> int:
+        h = xxhash.xxh64()
+        h.update(self.data.tobytes())
+        return h.intdigest()
 
 
 class MOKPProblem(Problem[np.ndarray]):
@@ -65,18 +69,19 @@ class MOKPProblem(Problem[np.ndarray]):
     def evaluate(self, solution: MOKPSolution) -> tuple[float, ...]:
         """Calculates the profit for each objective."""
         solution_data = solution.data
-        mult = 1 if self.is_feasible(solution.data) else -1
+        mult = 1 if self.is_feasible(solution.data) else 0
 
+        # Negate for minimization
         result = tuple(
-            mult * np.sum(solution_data * self.profits[i])
+            -1 * mult * np.sum(solution_data * self.profits[i])
             for i in range(self.num_objectives)
         )
         return result
 
     @staticmethod
     def calculate_solution_distance(sol1: MOKPSolution, sol2: MOKPSolution) -> float:
-        """Calculates a distance between two MOKP solutions (binary vectors)."""
-        return float(np.sum(sol1.data != sol2.data))
+        """Calculates a distance between two MOKP solutions in [0, 1]."""
+        return float(np.sum(sol1.data != sol2.data)) / sol2.data.size
 
     @staticmethod
     def load(filename: str) -> "MOKPProblem":
@@ -97,6 +102,7 @@ class MOKPProblem(Problem[np.ndarray]):
         capacity = configuration["data"]["capacity"]
 
         return MOKPProblem(weights, profits, capacity)
+
 
 class MOKPPymoo(ElementwiseProblem):
     """
@@ -122,7 +128,7 @@ class MOKPPymoo(ElementwiseProblem):
         Evaluate a solution `x`.
         `x` is a NumPy array representing a single solution (a vector of booleans).
         """
-        x = np.round(x) # NGSA instance is still resulting in array of floats
+        x = np.round(x)  # NGSA instance is still resulting in array of floats
         total_profits = np.sum(x * self.problem_instance.profits, axis=1)
 
         # Objectives: We minimize the negative profits

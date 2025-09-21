@@ -32,7 +32,9 @@ def solve_mokp_spea2(instance_path: str, run_seconds: float) -> SavedRun:
     else:
         final_solutions_F = np.array([])
 
-    solutions_data = [SavedSolution(cast(np.ndarray, -sol).tolist()) for sol in final_solutions_F]
+    solutions_data = [
+        SavedSolution(cast(np.ndarray, -sol).tolist()) for sol in final_solutions_F
+    ]
 
     return SavedRun(
         metadata=Metadata(
@@ -44,7 +46,6 @@ def solve_mokp_spea2(instance_path: str, run_seconds: float) -> SavedRun:
         ),
         solutions=solutions_data,
     )
-
 
 
 def register_cli(cli: Any) -> None:
