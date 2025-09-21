@@ -91,11 +91,20 @@ You can also click on graphs in legend to show/hide any specific one.
 """)
 
     problem_data = load_instance_data_json(instance_path)
+    runs_grouped = {
+        # take latest run
+        name: [sorted(runs, key=lambda run: run.metadata.date)[-1]]
+        for name, runs in runs_grouped.items()
+    }
 
-    all_runs = [run for runs in runs_grouped.values() for run in runs]
+    all_runs = [runs[0] for runs in runs_grouped.values()]
+
     reference_front = calculate_reference_front(
         all_runs, problem_data.get("reference_front")
     )
+
+    if reference_front.size == 0:
+        return
 
     all_flipped_indices = set()
     if ensure_objectives_positive:
@@ -121,7 +130,7 @@ You can also click on graphs in legend to show/hide any specific one.
 
     for run_name, runs in runs_grouped.items():
         merged_front_objectives = sorted(
-            [tuple(sol.objectives) for sol in runs[-1].solutions]
+            [tuple(sol.objectives) for sol in runs[0].solutions]
         )
 
         if not merged_front_objectives:
