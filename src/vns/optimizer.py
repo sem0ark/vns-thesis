@@ -24,11 +24,10 @@ class ElementwiseVNSOptimizer[T](VNSOptimizerAbstract[T]):
         shake_function: Callable[[Solution[T], int, VNSOptimizerAbstract], Solution[T]],
         acceptance_criterion: AcceptanceCriterion[T],
     ):
-        super().__init__(name, version, problem)
+        super().__init__(name, version, problem, acceptance_criterion)
 
         self.search_functions = search_functions
         self.shake_function = shake_function
-        self.acceptance_criterion = acceptance_criterion
 
         self.logger = logging.getLogger(self.__class__.__name__)
 
@@ -43,21 +42,21 @@ class ElementwiseVNSOptimizer[T](VNSOptimizerAbstract[T]):
         while True:
             improved = False
             current_solution = self.acceptance_criterion.get_one_current_solution()
+            k = 0
 
-            for k, search_function in enumerate(self.search_functions, 1):
-                shaken_solution = self.shake_function(current_solution, k, self)
-                local_optimum = search_function(shaken_solution, self)
+            while k < len(self.search_functions):
+                shaken_solution = self.shake_function(current_solution, k + 1, self)
+                local_optimum = self.search_functions[k](shaken_solution, self)
 
                 accepted = self.acceptance_criterion.accept(local_optimum)
 
                 if accepted:
                     improved = True
-                    break
+                    k = 0
+                else:
+                    k += 1
 
             yield improved
-
-    def get_solutions(self) -> Iterable[Solution]:
-        return self.acceptance_criterion.get_all_solutions()
 
 
 class FrontwiseVNSOptimizer[T](VNSOptimizerAbstract[T]):
@@ -74,11 +73,10 @@ class FrontwiseVNSOptimizer[T](VNSOptimizerAbstract[T]):
         shake_function: Callable[[Solution[T], int, VNSOptimizerAbstract], Solution[T]],
         acceptance_criterion: AcceptanceCriterion[T],
     ):
-        super().__init__(name, version, problem)
+        super().__init__(name, version, problem, acceptance_criterion)
 
         self.search_functions = search_functions
         self.shake_function = shake_function
-        self.acceptance_criterion = acceptance_criterion
 
         self.logger = logging.getLogger(self.__class__.__name__)
 
@@ -93,24 +91,23 @@ class FrontwiseVNSOptimizer[T](VNSOptimizerAbstract[T]):
         while True:
             improved = False
             current_solutions = self.acceptance_criterion.get_all_solutions()
+            k = 0
 
-            for k, search_function in enumerate(self.search_functions, 1):
+            while k < len(self.search_functions):
                 shaken_solutions = [
-                    self.shake_function(sol, k, self) for sol in current_solutions
+                    self.shake_function(sol, k + 1, self) for sol in current_solutions
                 ]
-                local_optimums = search_function(shaken_solutions, self)
+                local_optimums = self.search_functions[k](shaken_solutions, self)
 
-                accepted = False
-                for local_optimum in local_optimums:
-                    accepted = accepted or self.acceptance_criterion.accept(
-                        local_optimum
-                    )
+                accepted = any(
+                    self.acceptance_criterion.accept(local_optimum)
+                    for local_optimum in local_optimums
+                )
 
                 if accepted:
                     improved = True
-                    break
+                    k = 0
+                else:
+                    k += 1
 
             yield improved
-
-    def get_solutions(self) -> Iterable[Solution]:
-        return self.acceptance_criterion.get_all_solutions()

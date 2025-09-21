@@ -9,9 +9,14 @@ import numpy as np
 
 from src.examples.mokp.mokp_problem import MOKPProblem, MOKPSolution
 from src.vns.abstract import VNSOptimizerAbstract
-from src.vns.acceptance import AcceptBatch, AcceptBatchSkewed
-from src.vns.local_search import best_improvement, first_improvement, noop
-from src.vns.optimizer import ElementwiseVNSOptimizer
+from src.vns.acceptance import (
+    AcceptBatch,
+    AcceptBatchSkewed,
+    AcceptBeam,
+    AcceptBeamSkewed,
+)
+from src.vns.local_search import best_improvement, first_improvement, mo_vnd, noop
+from src.vns.optimizer import ElementwiseVNSOptimizer, FrontwiseVNSOptimizer
 
 from src.examples.vns_runner_utils import run_vns_optimizer
 from src.cli.cli import CLI, SavedRun, Metadata, SavedSolution
@@ -201,10 +206,68 @@ def prepare_optimizers(
     return optimizers
 
 
+@lru_cache
+def prepare_optimizers_mo_vnd(
+    instance_path: str | None,
+) -> dict[str, Callable[[float], SavedRun]]:
+    """
+    Automatically generates all possible optimizer configurations using itertools.product.
+    """
+
+    optimizers: dict[str, Callable[[float], SavedRun]] = {}
+    profit_sums = []
+    problem: Any = None
+
+    if instance_path:
+        problem = MOKPProblem.load(instance_path)
+
+        profit_sums = np.sum(problem.profits, axis=1)
+        total = np.sum(profit_sums)
+        profit_sums = (profit_sums / total * profit_sums.size).tolist()
+
+    acceptance_criteria = [
+        ("batch", AcceptBeam()),
+        (
+            "skewed",
+            AcceptBeamSkewed(profit_sums, MOKPProblem.calculate_solution_distance),
+        ),
+    ]
+    shake_functions = [
+        ("shake_ar", shake_add_remove),
+        ("shake_swap", shake_swap),
+    ]
+
+    for (
+        (acc_name, acc_func),
+        (shake_name, shake_func),
+        k,
+    ) in itertools.product(acceptance_criteria, shake_functions, range(1, 8)):
+        config_name = f"vns {acc_name} MOVND_swap_ar k{k} {shake_name}"
+
+        config = FrontwiseVNSOptimizer(
+            problem=problem,
+            search_functions=[mo_vnd([swap_op, add_remove_op])] * k,
+            acceptance_criterion=acc_func,
+            shake_function=shake_func,
+            name=config_name,
+            version=5,
+        )
+
+        def runner_func(run_time, _config=config):
+            return run_instance_with_config(run_time, str(instance_path), _config)
+
+        optimizers[config_name] = runner_func
+
+    return optimizers
+
+
 def register_cli(cli: CLI) -> None:
     def make_runner(optimizer_name: str):
         def run(instance_path, run_time, _optimizer_name=optimizer_name):
-            return prepare_optimizers(instance_path)[_optimizer_name](run_time)
+            return {
+                **prepare_optimizers(instance_path),
+                **prepare_optimizers_mo_vnd(instance_path),
+            }[_optimizer_name](run_time)
 
         return run
 
@@ -213,5 +276,9 @@ def register_cli(cli: CLI) -> None:
         [
             (optimizer_name, make_runner(optimizer_name))
             for optimizer_name in prepare_optimizers(None).keys()
+        ]
+        + [
+            (optimizer_name, make_runner(optimizer_name))
+            for optimizer_name in prepare_optimizers_mo_vnd(None).keys()
         ],
     )

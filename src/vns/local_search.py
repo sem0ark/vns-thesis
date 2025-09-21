@@ -1,7 +1,8 @@
 from ast import TypeVar
-from typing import Callable
+import random
+from typing import Callable, Iterable
 from src.vns.abstract import NeighborhoodOperator, Solution, VNSOptimizerAbstract
-from src.vns.acceptance import ComparisonResult, compare
+from src.vns.acceptance import AcceptBeam, ComparisonResult, compare
 
 T = TypeVar("T")
 SingleSearchFunction = Callable[[Solution[T], VNSOptimizerAbstract[T]], Solution[T]]
@@ -109,61 +110,86 @@ def composite(search_functions: list[SingleSearchFunction]):
     return search
 
 
-# def _single_objective_search(
-#     initial: Solution,
-#     operator: NeighborhoodOperator,
-#     config: VNSOptimizerAbstract,
-#     objective_index: int,
-# ) -> Solution:
-#     """
-#     Performs a local search that aims to improve a single objective `i`.
-#     Returns the first improving neighbor found.
-#     """
-#     initial_objective = initial.objectives[objective_index]
+def vnd_i(
+    initial: Solution,
+    operators: list[NeighborhoodOperator],
+    objective_index: int,
+    optimizer: VNSOptimizerAbstract,
+) -> set[Solution]:
+    """
+    Implements the VND-i local search procedure (Algorithm 5).
 
-#     for neighbor in operator(initial, config):
-#         # A new solution is "better" if it has a better value for the
-#         # specified objective, ignoring all others.
-#         is_better_objective = (
-#             neighbor.objectives[objective_index] > initial.objectives[objective_index]
-#         )
-#         if is_better_objective:
-#             return neighbor
-#     return initial
+    This function performs a single-objective local search and returns the set
+    of efficient points found.
+    """
+    k = 0
+    k_max = len(operators)
+    x = initial
+    acceptance = AcceptBeam()
+    acceptance.accept(x)
+
+    while k < k_max:
+        # Step 5: Find the best neighbor x' with respect to objective z_i
+        x_prime = x
+        for neighbor in operators[k](initial, optimizer):
+            if (
+                neighbor.objectives[objective_index]
+                < x_prime.objectives[objective_index]
+            ):
+                x_prime = neighbor
+
+        # Step 6: Update the set of efficient points E with x'
+        acceptance.accept(x_prime)
+
+        # Step 7-12: Check for improvement and update k
+        # Improvement means x' is better than x for objective i
+        if x_prime.objectives[objective_index] < x.objectives[objective_index]:
+            x = x_prime
+            k = 0
+        else:
+            k += 1
+
+    return set(acceptance.get_all_solutions())
 
 
-# def mo_vnd(operators: list[NeighborhoodOperator]):
-#     """
-#     Implements the MO-VND strategy (Algorithm 6) from the paper.
+def mo_vnd(operators: list[NeighborhoodOperator]):
+    """
+    Implements the MO-VND strategy (Algorithm 6).
 
-#     This search function is designed to be used with an acceptance criterion
-#     that manages a set of solutions (the Pareto front). It takes a single
-#     solution from this front and tries to improve it using objective-specific
-#     local searches.
-#     """
+    This search function manages the overall multi-objective VND process,
+    alternating between single-objective VND-i procedures.
+    """
 
-#     def search(initial: Solution, config: VNSOptimizerAbstract) -> Solution:
-#         # Get the number of objectives from the solution's objectives property
-#         num_objectives = len(initial.objectives)
-#         current = initial
+    def search(
+        initial_solutions: Iterable[Solution], config: VNSOptimizerAbstract
+    ) -> Iterable[Solution]:
+        r = len(list(initial_solutions)[0].objectives)
 
-#         # The VND-i loop from the paper (Algorithm 5)
-#         for objective_index in range(num_objectives):
-#             # Try each neighborhood operator for the current objective
-#             for operator in operators:
-#                 new_solution = _single_objective_search(
-#                     current, operator, config, objective_index
-#                 )
+        i = 0
+        acceptance = AcceptBeam()
+        for sol in config.acceptance_criterion.get_all_solutions():
+            acceptance.accept(sol)
 
-#                 # Check if the new solution is not dominated by the current front
-#                 # The acceptance criterion's 'accept' method handles this check
-#                 # and updates the front if the solution is non-dominated.
-#                 if config.acceptance_criterion.accept(new_solution):
-#                     # If accepted, we have found an improvement. Return it.
-#                     return new_solution
+        exploited_sets: list[set[Solution]] = [set() for _ in range(r)]
 
-#         # If no non-dominated improving solution is found after all searches,
-#         # return the initial solution.
-#         return initial
+        while i < r:
+            accepted = False
 
-#     return search
+            for x_prime in list(acceptance.get_all_solutions()):
+                if x_prime in exploited_sets[i]:
+                    continue
+
+                exploited_sets[i].add(x_prime)
+                Ei = vnd_i(x_prime, operators, i, config)
+                for sol in Ei:
+                    accepted = accepted or acceptance.accept(sol)
+                    exploited_sets[i].add(sol)
+
+            if accepted:
+                i = 0
+            else:
+                i += 1
+
+        return acceptance.get_all_solutions()
+
+    return search

@@ -1,7 +1,7 @@
 import json
 import logging
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Tuple
 
 from matplotlib.transforms import Bbox
 import numpy as np
@@ -62,11 +62,20 @@ def calculate_reference_front(
     return reference_front
 
 
-def flip_objectives_to_positive(front: np.ndarray) -> np.ndarray:
-    for i in range(front.shape[1]):
-        if np.all(front[:, i] < 0):
-            front[:, i] *= -1
-    return front
+def flip_objectives_to_positive(front: np.ndarray) -> Tuple[np.ndarray, List[int]]:
+    """
+    Flips the sign of any column in a NumPy array if all values in that column are negative.
+
+    Returns the modified array and a list of indices of the flipped columns.
+    """
+    flipped_indices = []
+    # Make a copy to avoid modifying the original array
+    front_copy = front.copy()
+    for i in range(front_copy.shape[1]):
+        if np.all(front_copy[:, i] < 0):
+            front_copy[:, i] *= -1
+            flipped_indices.append(i)
+    return front_copy, flipped_indices
 
 
 def plot_runs(
@@ -83,14 +92,15 @@ You can also click on graphs in legend to show/hide any specific one.
 
     problem_data = load_instance_data_json(instance_path)
 
-    # Combine all solutions to create a single, shared reference front
     all_runs = [run for runs in runs_grouped.values() for run in runs]
     reference_front = calculate_reference_front(
         all_runs, problem_data.get("reference_front")
     )
 
+    all_flipped_indices = set()
     if ensure_objectives_positive:
-        reference_front = flip_objectives_to_positive(reference_front)
+        reference_front, flipped_indices = flip_objectives_to_positive(reference_front)
+        all_flipped_indices.update(flipped_indices)
 
     if reference_front.size == 0:
         logging.error(
@@ -106,15 +116,6 @@ You can also click on graphs in legend to show/hide any specific one.
 
     # Calculate hypervolume for each run and prepare data for plotting
     plot_data = []
-
-    # We need a shared reference point for HV calculation
-    all_merged_fronts = []
-    for runs in runs_grouped.values():
-        merged_front_objectives = [
-            sol.objectives for run in runs for sol in run.solutions
-        ]
-        if merged_front_objectives:
-            all_merged_fronts.append(np.array(merged_front_objectives))
 
     hv_indicator = HV(ref_point=(0, 0))
 
@@ -140,7 +141,8 @@ You can also click on graphs in legend to show/hide any specific one.
             hypervolume = -np.inf
 
         if ensure_objectives_positive:
-            merged_front = flip_objectives_to_positive(merged_front)
+            merged_front, flipped_indices = flip_objectives_to_positive(merged_front)
+            all_flipped_indices.update(flipped_indices)
 
         plot_data.append(
             {"name": run_name, "front": merged_front, "hypervolume": hypervolume}
@@ -183,9 +185,15 @@ You can also click on graphs in legend to show/hide any specific one.
     if all_runs:
         metadata = all_runs[0].metadata
         title_str = f"{metadata.problem_name.upper()}, {metadata.instance_name}, {metadata.run_time_seconds}s"
+
+        if all_flipped_indices:
+            flipped_obj_labels = sorted([f"Z{i + 1}" for i in all_flipped_indices])
+            note = f" (Note: {', '.join(flipped_obj_labels)} were negated)"
+            title_str += note
+
         ax.set_title(title_str)
-        ax.set_xlabel("Objective 1")
-        ax.set_ylabel("Objective 2")
+        ax.set_xlabel("Z1")
+        ax.set_ylabel("Z2")
 
     ax.grid(True)
 

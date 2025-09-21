@@ -12,6 +12,7 @@ from src.cli.plot import plot_runs
 from src.cli.shared import SavedRun, SavedSolution, Metadata
 
 BASE = Path(__file__).parent.parent.parent / "runs"
+BASE.mkdir(exist_ok=True, parents=True)
 
 
 def parse_time_string(time_str: str) -> int:

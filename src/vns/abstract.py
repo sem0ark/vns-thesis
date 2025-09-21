@@ -79,14 +79,6 @@ class AcceptanceCriterion[T]:
     def __init__(self):
         """The archive is now managed internally by the acceptance criterion."""
 
-    def dominates(
-        self, new_solution: Solution[T], current_solution: Solution[T]
-    ) -> bool:
-        """
-        Determines if 'new_solution' is better than 'current_solution' based on Pareto dominance (minimization).
-        """
-        raise NotImplementedError
-
     def accept(self, candidate: Solution[T]) -> bool:
         """
         Decides whether to accept candidate_solution and updates the internal archive.
@@ -110,7 +102,13 @@ class AcceptanceCriterion[T]:
 class VNSOptimizerAbstract[T]:
     """Abstract VNS optimizer, also defines the context passed between program elements."""
 
-    def __init__(self, name: str, version: int, problem: Problem[T]) -> None:
+    def __init__(
+        self,
+        name: str,
+        version: int,
+        problem: Problem[T],
+        acceptance_criterion: AcceptanceCriterion[T],
+    ) -> None:
         """Init.
 
         Args:
@@ -121,6 +119,7 @@ class VNSOptimizerAbstract[T]:
         self.name = name
         self.version = version
         self.problem = problem
+        self.acceptance_criterion = acceptance_criterion
 
     def optimize(self) -> Iterable[bool]:
         """

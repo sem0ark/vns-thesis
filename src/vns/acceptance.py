@@ -154,7 +154,7 @@ class AcceptBeamSkewed(AcceptBeam):
             )
 
             if (
-                compare(candidate.objectives, skewed_objectives)
+                compare(skewed_objectives, solution.objectives)
                 != ComparisonResult.STRICTLY_BETTER
             ):
                 return False
@@ -202,6 +202,10 @@ class AcceptBatch(AcceptanceCriterion):
         Decides whether to accept candidate and update the archive.
         Updates the non-dominated archive based on Pareto dominance.
         """
+        if not self.front:
+            self.upcoming_front.append(candidate)
+            self._swap_fronts()
+            return True
 
         for i, solution in enumerate(self.front):
             result = compare(candidate.objectives, solution.objectives)
@@ -295,14 +299,13 @@ class AcceptBatchSkewed(AcceptBatch):
             if solution == candidate:
                 return False
 
-            solution_objectives = solution.objectives
             skewed_objectives = tuple(
                 obj_i - self.alpha[i] * distance
-                for i, obj_i in enumerate(solution_objectives)
+                for i, obj_i in enumerate(candidate.objectives)
             )
 
             if (
-                compare(candidate.objectives, skewed_objectives)
+                compare(skewed_objectives, solution.objectives)
                 != ComparisonResult.STRICTLY_BETTER
             ):
                 return False
