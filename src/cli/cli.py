@@ -7,8 +7,7 @@ from typing import Callable, Self
 import click
 import numpy as np
 
-from src.cli.metrics import display_metrics, calculate_metrics
-from src.cli.plot import plot_runs
+from src.cli.metrics import display_metrics, calculate_metrics, plot_runs
 from src.cli.shared import SavedRun, SavedSolution, Metadata
 
 BASE = Path(__file__).parent.parent.parent / "runs"
@@ -53,7 +52,6 @@ class NpEncoder(json.JSONEncoder):
 def _load_and_filter_runs(
     problem_name: str,
     instance_name: str,
-    max_time_seconds: int,
     filter_configs: str = "",
 ) -> dict[str, list[SavedRun]]:
     """
@@ -82,9 +80,6 @@ def _load_and_filter_runs(
                 all(filter_name in config_name.lower() for filter_name in filter_group)
                 for filter_group in filter_groups
             ):
-                continue
-
-            if abs(metadata.run_time_seconds - max_time_seconds) > 1e-3:
                 continue
 
             solutions = [
@@ -151,16 +146,9 @@ class CLI:
             default="",
             type=str,
         )
-        @click.option(
-            "-d",
-            "--make-objectives-positive",
-            help="Define, whether the plotted objectives should be positive or not. It allows to flip objective values that have been negated with the goal of maximization.",
-            default=True,
-            type=bool,
-        )
         @click.pass_context
         def show_command(
-            ctx, problem, instance, max_time, filter_configs, make_objectives_positive
+            ctx, problem, instance, max_time, filter_configs
         ):
             ctx.ensure_object(dict)
             ctx.obj["problem_name"] = problem
@@ -171,8 +159,6 @@ class CLI:
             ctx.obj["filter_configs"] = filter_configs
             ctx.obj["max_time_seconds"] = parse_time_string(max_time)
 
-            ctx.obj["make_objectives_positive"] = make_objectives_positive
-
         @show_command.command(name="plot", help="Plot the metrics.")
         @click.pass_context
         def show_plot(ctx):
@@ -180,16 +166,14 @@ class CLI:
             instance_name = ctx.obj["instance_name"]
             max_time_seconds = ctx.obj["max_time_seconds"]
             filter_configs = ctx.obj["filter_configs"]
-            make_objectives_positive = ctx.obj["make_objectives_positive"]
 
             click.echo("Plotting metrics...")
             runs = _load_and_filter_runs(
                 problem_name,
                 instance_name,
-                max_time_seconds,
                 filter_configs,
             )
-            plot_runs(ctx.obj["instance_path"], runs, make_objectives_positive)
+            plot_runs(ctx.obj["instance_path"], runs, max_time_seconds)
 
         @show_command.command(name="metrics", help="Display raw metrics.")
         @click.pass_context
@@ -202,9 +186,9 @@ class CLI:
             click.echo("Displaying metrics...")
 
             runs = _load_and_filter_runs(
-                problem_name, instance_name, max_time_seconds, filter_configs
+                problem_name, instance_name, filter_configs
             )
-            display_metrics(calculate_metrics(ctx.obj["instance_path"], runs))
+            display_metrics(calculate_metrics(ctx.obj["instance_path"], runs, max_time_seconds))
 
         @click.group(help="Run an optimization algorithm for a given problem.")
         @click.option(
