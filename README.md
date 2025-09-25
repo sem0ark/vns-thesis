@@ -47,35 +47,48 @@ This project uses `uv` for dependency management. To get started, navigate to th
 ```bash
 uv sync
 ```
+The updated README description for the CLI functionality, reflecting the new features in `show metrics` (Coverage Matrix and Export options), is below.
 
 ### CLI Functionality
 
-The main command-line interface (CLI) is accessed via `python ./cli.py` and is divided into two primary sub-commands: `show` and `run`.
+The main command-line interface (CLI) is accessed via `python ./cli.py` and is divided into two primary sub-commands: **`show`** and **`run`**.
 
 #### `show`
 
-The `show` command is used to analyze results from previously executed optimization runs. It takes a problem name, an instance file, and a maximum execution time to filter the results.
+The `show` command is used to analyze results from previously executed optimization runs. It requires a **problem name** (`-p`), an **instance file** (`-i`), and a **maximum execution time** (`-t`) to filter the results.
 
 - `show plot`: Generates an interactive plot showing the Pareto fronts of the filtered runs, including a reference front for comparison.
     ```bash
     uv run python ./cli.py show -i ./data/mokp/2KP50-11.json -t 10s -p mokp plot
     ```
-- `show metrics`: Displays a table of performance metrics (e.g., Hypervolume, Spacing, IGD) for the filtered runs, allowing for quantitative comparison.
+
+- `show metrics`: Displays quantitative performance metrics for the filtered runs. This command now generates **two tables**:
+    1.  **Unary Metrics** (e.g., Epsilon, Hypervolume, IGD, R-Metric).
+    2.  A **1-to-1 Coverage Matrix** $C(A, B)$ comparing the dominance between all run pairs. Runs that are **completely dominated** by another run are **hidden** from the matrix.
+
     ```bash
     uv run python ./cli.py show -i ./data/mokp/2KP50-11.json -t 10s -p mokp metrics
     ```
 
-Both `show` sub-commands can be further refined using the `-f` or `--filter-configs` option. This option accepts a comma-separated list of keywords to match specific algorithm configurations. Multiple groups of filters can be combined using `or`.
+    The `show metrics` command supports exporting the results:
+    - `-o, --output-file <PATH>`: Exports both the Unary Metrics and Coverage Matrix tables to the specified path. It supports **`.csv`** and **`.xlsx`** formats, generating two separate files (e.g., `run_summary_unary.xlsx` and `run_summary_coverage.xlsx`).
+
+    ```bash
+    # Example: Exporting metrics to an Excel file
+    uv run python ./cli.py show -i ... -t 10s -p mokp metrics -o ./results/run_summary.xlsx
+    ```
+
+Both `show` sub-commands can be further refined using the **`-f`** or **`--filter-configs`** option. This option accepts a comma-separated list of keywords to match specific algorithm configurations. Multiple groups of filters can be combined using the keyword **`or`**.
 
 #### `run`
 
-The `run` command executes one or more optimization algorithms on a specified problem instance. It requires an instance file and a maximum execution time. It also takes the problem name as a sub-command.
+The `run` command executes one or more optimization algorithms on a specified problem instance. It requires an instance file (`-i`) and a maximum execution time (`-t`).
 
-- `run <problem_name>`: Runs all registered configurations for the specified problem.
+  - `run <problem_name>`: Runs all registered configurations for the specified problem **sequentially**.
     ```bash
     uv run python ./cli.py run -i ./data/mokp/2KP50-11.json -t 10s mokp
     ```
-- Filtering runs: Similar to the `show` command, you can use the `-f` or `--filter-configs` option to run only a subset of algorithms. This is particularly useful for testing specific configurations.
+  - Filtering runs: Similar to the `show` command, you can use the `-f` or `--filter-configs` option to run only a subset of algorithms.
     ```bash
     uv run python ./cli.py run -i ./data/mokp/2KP50-11.json -t 10s mokp -f "nsga or spea or k3,batch,noop"
     ```
