@@ -77,9 +77,9 @@ The `run` command executes one or more optimization algorithms on a specified pr
     ```
 - Filtering runs: Similar to the `show` command, you can use the `-f` or `--filter-configs` option to run only a subset of algorithms. This is particularly useful for testing specific configurations.
     ```bash
-    uv run python ./cli.py run -i ./data/mokp/2KP50-11.json -t 10s mokp -f "ngsa or spea or k3,batch,noop"
+    uv run python ./cli.py run -i ./data/mokp/2KP50-11.json -t 10s mokp -f "nsga or spea or k3,batch,noop"
     ```
-    This example would execute three sets of runs: all configurations containing "ngsa", all containing "spea", and all containing both "k3" and "batch" and "noop".
+    This example would execute three sets of runs: all configurations containing "nsga", all containing "spea", and all containing both "k3" and "batch" and "noop".
 
 Upon completion, the results of each run are saved to a timestamped JSON file in the `./runs` directory, which can then be analyzed with the `show` command.
 
@@ -168,7 +168,7 @@ The last step is to import your new module and call its registration function in
 
 import logging
 
-import src.examples.mokp.ngsa2
+import src.examples.mokp.nsga2
 import src.examples.mokp.spea2
 import src.examples.mokp.vns
 import src.examples.my_problem # Import your new module
@@ -181,7 +181,7 @@ if __name__ == "__main__":
     setup_logging(level=logging.INFO)
     cli = CLI()
 
-    src.examples.mokp.ngsa2.register_cli(cli)
+    src.examples.mokp.nsga2.register_cli(cli)
     src.examples.mokp.spea2.register_cli(cli)
     src.examples.mokp.vns.register_cli(cli)
     src.examples.my_problem.register_cli(cli) # Register your new problem

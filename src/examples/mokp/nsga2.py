@@ -12,7 +12,7 @@ from src.cli.cli import Metadata, SavedRun, SavedSolution
 from src.examples.mokp.mokp_problem import MOKPProblem, MOKPPymoo
 
 
-def solve_mokp_ngsa2(instance_path: str, run_seconds: float):
+def solve_mokp_nsga2(instance_path: str, run_seconds: float):
     problem_instance = MOKPProblem.load(instance_path)
     problem = MOKPPymoo(problem_instance)
 
@@ -48,4 +48,4 @@ def solve_mokp_ngsa2(instance_path: str, run_seconds: float):
 
 
 def register_cli(cli: Any) -> None:
-    cli.register_runner("mokp", [("NGSA2", solve_mokp_ngsa2)])
+    cli.register_runner("mokp", [("NSGA2", solve_mokp_nsga2)])

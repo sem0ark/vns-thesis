@@ -128,7 +128,7 @@ class MOKPPymoo(ElementwiseProblem):
         Evaluate a solution `x`.
         `x` is a NumPy array representing a single solution (a vector of booleans).
         """
-        x = np.round(x)  # NGSA instance is still resulting in array of floats
+        x = np.round(x)  # NSGA instance is still resulting in array of floats
         total_profits = np.sum(x * self.problem_instance.profits, axis=1)
 
         # Objectives: We minimize the negative profits
