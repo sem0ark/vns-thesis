@@ -174,8 +174,15 @@ class CLI:
             plot_runs(ctx.obj["instance_path"], runs, max_time_seconds)
 
         @show_command.command(name="metrics", help="Display raw metrics.")
+        @click.option(
+            "-o",
+            "--output-file",
+            type=click.Path(path_type=Path),
+            default=None,
+            help="File path (including extension .csv or .xlsx) to export the tables.",
+        )
         @click.pass_context
-        def show_metrics(ctx):
+        def show_metrics(ctx, output_file):
             problem_name = ctx.obj["problem_name"]
             instance_name = ctx.obj["instance_name"]
             max_time_seconds = ctx.obj["max_time_seconds"]
@@ -184,7 +191,7 @@ class CLI:
             click.echo("Displaying metrics...")
 
             runs = _load_and_filter_runs(problem_name, instance_name, filter_configs)
-            display_metrics(ctx.obj["instance_path"], runs, max_time_seconds)
+            display_metrics(ctx.obj["instance_path"], runs, max_time_seconds, output_file)
 
         @click.group(help="Run an optimization algorithm for a given problem.")
         @click.option(
