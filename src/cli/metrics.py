@@ -1,17 +1,20 @@
 import json
 import logging
+from collections import defaultdict
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any, Dict, List, Tuple
+
 import matplotlib.pyplot as plt
 import numpy as np
+import pandas as pd
 import tabulate
-
-from dataclasses import dataclass
 from matplotlib.transforms import Bbox
-from pathlib import Path
 from pymoo.indicators.hv import HV
 from pymoo.indicators.igd import IGD
 from pymoo.util.nds.non_dominated_sorting import NonDominatedSorting
+
 from src.cli.shared import SavedRun
-from typing import Any, Dict, List, Tuple
 
 
 def load_instance_data_json(file_path: Path) -> dict[str, Any]:
@@ -20,6 +23,7 @@ def load_instance_data_json(file_path: Path) -> dict[str, Any]:
 
     with open(file_path, "r") as f:
         return json.load(f)
+
 
 @dataclass
 class Metrics:
@@ -47,7 +51,7 @@ def flip_objectives_to_positive(front: np.ndarray) -> Tuple[np.ndarray, List[int
     return front_copy, flipped_indices
 
 
-def calculate_reference_front(
+def merge_runs_to_non_dominated_front(
     runs: list[SavedRun], predefined_front: list | None = None
 ) -> np.ndarray:
     """
@@ -61,12 +65,7 @@ def calculate_reference_front(
     Returns:
         A NumPy array representing the non-dominated reference front.
     """
-    if predefined_front:
-        print("Got a predefined reference front!")
-        predefined_front_np, _ = flip_objectives_to_positive(np.array(predefined_front))
-        return -predefined_front_np
 
-    print("Making reference front from merging all available runs.")
     all_objectives = []
 
     for run in runs:
@@ -120,15 +119,31 @@ def calculate_multiplicative_epsilon(A: np.ndarray, R: np.ndarray) -> float:
     return np.max(np.min(ratios, axis=1))
 
 
+def _generate_uniform_weights(num_objectives: int, num_weights: int) -> np.ndarray:
+    """
+    Generates uniformly distributed weight vectors for R2 metric.
+    """
+    if num_objectives == 2:
+        weights = np.zeros((num_weights, 2))
+        for i in range(num_weights):
+            weights[i, 0] = i / (num_weights - 1)
+            weights[i, 1] = 1.0 - weights[i, 0]
+        return weights
+    else:
+        # A simple approximation for more than 2 objectives
+        weights = np.random.rand(num_weights, num_objectives)
+        return weights / np.sum(weights, axis=1, keepdims=True)
+
+
 def calculate_r2_metric(
     front: np.ndarray, ideal_point: np.ndarray, weights: np.ndarray
 ) -> float:
     """
     Calculates the R2 unary indicator based on the weighted Tchebycheff utility function.
-    This function is now explicitly implemented for a minimization problem.
+    Paper: https://hal.science/hal-01329559/
 
     Args:
-        front: A NumPy array of objective vectors (solutions).
+        front: np array of objective vectors (solutions).
         ideal_point: The ideal point (Z_ID) as a NumPy array.
         weights: A NumPy array of weight vectors (reference vectors).
 
@@ -166,6 +181,48 @@ def calculate_r2_metric(
     return np.mean(min_utilities_per_weight)
 
 
+def calculate_coverage(A: np.ndarray, B: np.ndarray) -> float:
+    """
+    Calculates the coverage metric C(A, B), the ratio of solutions in B
+    that are dominated by at least one solution in A.
+
+    C(A, B) = |{b inn B | ∃ a inn A, a dominates b}| / |B|
+
+    Args:
+        A: The approximation front A (a NumPy array).
+        B: The approximation front B (a NumPy array).
+
+    Returns:
+        The coverage metric C(A, B) (a value between 0 and 1).
+    """
+    if B.size == 0:
+        return np.nan if A.size == 0 else 0.0
+    if A.size == 0:
+        return 0.0
+
+    num_dominated = 0
+    # A solution 'a' dominates 'b' if a is better than b in ALL objectives (for minimization).
+    # Since we assume minimization: a_i <= b_i for all i, and a_j < b_j for at least one j.
+
+    # Iterate over all solutions in B (the covered front)
+    for b in B:
+        is_b_dominated = False
+
+        for a in A:
+            is_at_least_as_good = np.all(a <= b + 1e-9)
+            is_strictly_better = np.any(a < b - 1e-9)
+
+            if is_at_least_as_good and is_strictly_better:
+                num_dominated += 1
+                is_b_dominated = True
+                break
+
+        if is_b_dominated:
+            num_dominated += 1
+
+    return num_dominated / B.shape[0]
+
+
 def _get_hypervolume_reference_point(fronts: list[np.ndarray]) -> np.ndarray:
     """
     Determines a suitable reference point for Hypervolume calculation.
@@ -176,26 +233,11 @@ def _get_hypervolume_reference_point(fronts: list[np.ndarray]) -> np.ndarray:
     all_points = np.concatenate(fronts, axis=0)
     # Get the maximum value for each objective across all fronts
     max_objectives = np.max(all_points, axis=0)
-    
+
     # The reference point is set slightly worse (larger) than the maximum observed values.
     # This is correct for minimization.
     return max_objectives + 1e-6
 
-
-def _generate_uniform_weights(num_objectives: int, num_weights: int) -> np.ndarray:
-    """
-    Generates uniformly distributed weight vectors for R2 metric.
-    """
-    if num_objectives == 2:
-        weights = np.zeros((num_weights, 2))
-        for i in range(num_weights):
-            weights[i, 0] = i / (num_weights - 1)
-            weights[i, 1] = 1.0 - weights[i, 0]
-        return weights
-    else:
-        # A simple approximation for more than 2 objectives
-        weights = np.random.rand(num_weights, num_objectives)
-        return weights / np.sum(weights, axis=1, keepdims=True)
 
 def calculate_metrics(
     instance_path: Path,
@@ -218,9 +260,14 @@ def calculate_metrics(
     problem_data = load_instance_data_json(instance_path)
 
     all_runs = [run for runs in runs_grouped.values() for run in runs]
-    reference_front = calculate_reference_front(
-        all_runs, problem_data.get("reference_front")
-    )
+
+    predefined_front = problem_data.get("reference_front")
+    if predefined_front:
+        print("Got a predefined reference front!")
+        reference_front = np.array(predefined_front)
+    else:
+        print("Merging all solutiosn to get a reference front...")
+        reference_front = merge_runs_to_non_dominated_front(all_runs)
 
     if reference_front.size == 0:
         return {}
@@ -233,7 +280,9 @@ def calculate_metrics(
 
     num_objectives = reference_front.shape[1]
     hypervolume_reference_point = _get_hypervolume_reference_point([reference_front])
-    reference_front_hypervolume = HV(ref_point=hypervolume_reference_point).do(reference_front) or np.nan
+    reference_front_hypervolume = (
+        HV(ref_point=hypervolume_reference_point).do(reference_front) or np.nan
+    )
 
     # Calculate an ideal point for R2 (best point)
     r2_ideal_point = np.min(reference_front, axis=0)
@@ -263,10 +312,14 @@ def calculate_metrics(
                 )
                 continue
 
+            # Relative missing hypervolume compared to reference front: For minimization, smaller is better.
             hypervolume_indicator = HV(ref_point=hypervolume_reference_point)
-            relative_hypervolume = (reference_front_hypervolume - (hypervolume_indicator.do(front) or np.nan)) / reference_front_hypervolume
+            relative_hypervolume = (
+                reference_front_hypervolume
+                - (hypervolume_indicator.do(front) or np.nan)
+            ) / reference_front_hypervolume
 
-            # Epsilon: The user requested a custom implementation.
+            # Multiplicative Epsilon: For minimization, smaller is better.
             epsilon = calculate_multiplicative_epsilon(front, reference_front)
 
             # R2 Unary Indicator: For minimization, smaller is better.
@@ -281,7 +334,9 @@ def calculate_metrics(
                     epsilon=epsilon,
                     hypervolume=relative_hypervolume,
                     r_metric=r_metric,
-                    inverted_generational_distance=0 if epsilon == 1 else (inverted_generational_distance or np.nan),
+                    inverted_generational_distance=0
+                    if epsilon == 1
+                    else (inverted_generational_distance or np.nan),
                 )
             )
 
@@ -304,17 +359,128 @@ def calculate_metrics(
     return metrics_results
 
 
-def display_metrics(metrics: dict[str, Metrics]) -> None:
+def calculate_coverage_metrics(
+    fronts: Dict[str, np.ndarray],
+) -> Dict[str, Dict[str, float]]:
     """
-    Displays the calculated metrics in a sorted console table.
+    Calculates the coverage metric C(RunA, RunB) for all pairs of runs.
     """
+    run_names = list(fronts.keys())
+    coverage_matrix = defaultdict(dict)
+
+    for name_a in run_names:
+        for name_b in run_names:
+            coverage_matrix[name_a][name_b] = calculate_coverage(
+                fronts[name_a], fronts[name_b]
+            )
+
+    return coverage_matrix
+
+
+def export_table(
+    table_data: List[List[Any]],
+    headers: List[str],
+    output_path: Path,
+    sheet_name: str = "Metrics",
+):
+    """
+    Exports a list of table data and headers to CSV or Excel based on the file extension.
+    """
+    df = pd.DataFrame(table_data, columns=headers)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    if output_path.suffix.lower() == ".csv":
+        df.to_csv(output_path, index=False)
+        print(f"Metrics successfully exported to CSV: {output_path}")
+    elif output_path.suffix.lower() in [".xlsx", ".xls"]:
+        # Using ExcelWriter for better control and handling (e.g., sheet name)
+        try:
+            with pd.ExcelWriter(output_path, engine="xlsxwriter") as writer:
+                df.to_excel(writer, sheet_name=sheet_name, index=False)
+            print(f"Metrics successfully exported to Excel: {output_path}")
+        except ImportError:
+            print(
+                "Error: Please install 'xlsxwriter' (or 'openpyxl') for Excel export."
+            )
+            df.to_csv(output_path.with_suffix(".csv"), index=False)
+            print(f"Falling back to CSV export: {output_path.with_suffix('.csv')}")
+    else:
+        raise ValueError(
+            f"Unsupported export format: {output_path.suffix}. Use .csv or .xlsx."
+        )
+
+
+def prepare_coverage_table_data(
+    coverage_matrix: Dict[str, Dict[str, float]],
+) -> Tuple[List[str], List[List[Any]]]:
+    """
+    Prepares the coverage metric table data, excluding strictly dominated runs.
+    Returns headers and table data.
+    """
+    run_names = list(coverage_matrix.keys())
+    dominated_runs: set[str] = set()
+
+    # Determine strictly dominated runs
+    for name_b in run_names:
+        for name_a in run_names:
+            if name_a == name_b:
+                continue
+
+            coverage_a_b = coverage_matrix[name_a].get(name_b, 0.0)
+            coverage_b_a = coverage_matrix[name_b].get(name_a, 0.0)
+
+            # B is strictly inferior if A covers B completely AND B does not cover A completely
+            if coverage_a_b >= 1.0 and coverage_b_a < 1.0:
+                dominated_runs.add(name_b)
+                break
+
+    # Prepare table data, excluding dominated runs
+    display_names = [name for name in run_names if name not in dominated_runs]
+
+    headers = ["C(A, B)"] + display_names
+    table_data = []
+
+    for name_a in display_names:
+        row = [name_a]
+        for name_b in display_names:
+            coverage = coverage_matrix[name_a][name_b]
+            row.append(f"{coverage:.4f}" if not np.isnan(coverage) else "N/A")
+        table_data.append(row)
+
+    print(f"(Hiding runs completely dominated by another run: {list(dominated_runs)})")
+
+    return headers, table_data
+
+
+def display_coverage_table(coverage_matrix: Dict[str, Dict[str, float]]):
+    """
+    Prints the coverage metric C(A, B) table to the console.
+    """
+    headers, table_data = prepare_coverage_table_data(coverage_matrix)
+
+    print("\n--- Coverage (C(A, B)) Matrix ---")
+    print(tabulate.tabulate(table_data, headers=headers, tablefmt="fancy_grid"))
+
+    return headers, table_data  # Return for potential external use
+
+
+def prepare_metrics_table_data(
+    instance_path: Path,
+    runs_grouped: dict[str, list[SavedRun]],
+    max_time_seconds: float,
+) -> Tuple[Dict[str, Any], Tuple[List[str], List[List[Any]]]]:
+    """
+    Calculates metrics and prepares the unary metrics table data.
+    Returns (metrics, (headers, table_data)).
+    """
+    metrics = calculate_metrics(instance_path, runs_grouped, max_time_seconds)
     # Sort the metrics. Lower values are better for all of them.
     sorted_metrics = sorted(
         metrics.items(),
         key=lambda item: (
             item[1].inverted_generational_distance,
             item[1].epsilon,
-            item[1].hypervolume,
+            item[1].hypervolume,  # Assumed to be relative loss (smaller is better)
             item[1].r_metric,
         ),
     )
@@ -331,22 +497,107 @@ def display_metrics(metrics: dict[str, Metrics]) -> None:
     for run_name, metric_values in sorted_metrics:
         row = [
             run_name,
-            f"{metric_values.epsilon:.4f}"
-            if not np.isnan(metric_values.epsilon)
-            else "N/A",
-            f"{metric_values.hypervolume:.4f}"
+            metric_values.epsilon if not np.isnan(metric_values.epsilon) else "N/A",
+            metric_values.hypervolume
             if not np.isnan(metric_values.hypervolume)
             else "N/A",
-            f"{metric_values.r_metric:.4f}"
-            if not np.isnan(metric_values.r_metric)
-            else "N/A",
-            f"{metric_values.inverted_generational_distance:.4f}"
+            metric_values.r_metric if not np.isnan(metric_values.r_metric) else "N/A",
+            metric_values.inverted_generational_distance
             if not np.isnan(metric_values.inverted_generational_distance)
             else "N/A",
         ]
-        table_data.append(row)
 
-    print(tabulate.tabulate(table_data, headers=headers, tablefmt="fancy_grid"))
+        # Format the numbers as strings for console display only after table preparation
+        row_str = [row[0]] + [
+            f"{val:.4f}" if isinstance(val, float) else val for val in row[1:]
+        ]
+        table_data.append(row_str)
+
+    return metrics, (headers, table_data)
+
+
+def display_metrics(
+    instance_path: Path,
+    runs_grouped: dict[str, list[SavedRun]],
+    max_time_seconds: float,
+    output_file: Path | None = None,
+):
+    """
+    Calculates and displays all metrics (unary and coverage),
+    with an option to export them.
+    """
+    # 1. Prepare Unary Metrics Table
+    metrics, (unary_headers, unary_table_data) = prepare_metrics_table_data(
+        instance_path, runs_grouped, max_time_seconds
+    )
+
+    print("\n--- Unary Metrics Table ---")
+    print(
+        tabulate.tabulate(
+            unary_table_data, headers=unary_headers, tablefmt="fancy_grid"
+        )
+    )
+
+    # 2. Prepare Coverage Metrics Table
+    coverage_metrics = calculate_coverage_metrics(
+        {
+            name: merge_runs_to_non_dominated_front(
+                [
+                    run
+                    for run in runs
+                    if abs(run.metadata.run_time_seconds - max_time_seconds) < 1e-3
+                ]
+            )
+            for name, runs in runs_grouped.items()
+        }
+    )
+    coverage_headers, coverage_table_data = prepare_coverage_table_data(
+        coverage_metrics
+    )
+
+    print("\n--- Coverage (C(A, B)) Matrix ---")
+    print(
+        tabulate.tabulate(
+            coverage_table_data, headers=coverage_headers, tablefmt="fancy_grid"
+        )
+    )
+
+    # 3. Export Tables if output_file is provided
+    if output_file:
+        base_name = output_file.stem
+        suffix = output_file.suffix
+
+        # Export Unary Metrics
+        unary_export_path = output_file.with_name(f"{base_name}_unary{suffix}")
+        export_table(
+            table_data=[
+                [row[0]]
+                + [
+                    float(val) if val != "N/A" and isinstance(val, str) else val
+                    for val in row[1:]
+                ]
+                for row in unary_table_data  # Use raw float values for export
+            ],
+            headers=unary_headers,
+            output_path=unary_export_path,
+            sheet_name="UnaryMetrics",
+        )
+
+        # Export Coverage Metrics
+        coverage_export_path = output_file.with_name(f"{base_name}_coverage{suffix}")
+        export_table(
+            table_data=[
+                [row[0]]
+                + [
+                    float(val) if val != "N/A" and isinstance(val, str) else val
+                    for val in row[1:]
+                ]
+                for row in coverage_table_data
+            ],
+            headers=coverage_headers,
+            output_path=coverage_export_path,
+            sheet_name="CoverageMatrix",
+        )
 
 
 def plot_runs(
@@ -364,13 +615,27 @@ You can also click on graphs in legend to show/hide any specific one.
     problem_data = load_instance_data_json(instance_path)
 
     all_runs = [run for runs in runs_grouped.values() for run in runs]
-    reference_front = calculate_reference_front(
-        all_runs, problem_data.get("reference_front")
-    )
+    predefined_front = problem_data.get("reference_front")
+
+    if predefined_front:
+        print("Got a predefined reference front!")
+        predefined_front_np, _ = flip_objectives_to_positive(np.array(predefined_front))
+        reference_front = -predefined_front_np
+    else:
+        reference_front = merge_runs_to_non_dominated_front(all_runs)
 
     runs_grouped = {
         # take latest run with correct max run time.
-        name: [sorted([run for run in runs if abs(run.metadata.run_time_seconds - max_time_seconds) < 1e-3], key=lambda run: run.metadata.date)[-1]]
+        name: [
+            sorted(
+                [
+                    run
+                    for run in runs
+                    if abs(run.metadata.run_time_seconds - max_time_seconds) < 1e-3
+                ],
+                key=lambda run: run.metadata.date,
+            )[-1]
+        ]
         for name, runs in runs_grouped.items()
     }
 
@@ -399,25 +664,11 @@ You can also click on graphs in legend to show/hide any specific one.
     hypervolume_indicator = HV(ref_point=(0, 0))
 
     for run_name, runs in runs_grouped.items():
-        merged_front_objectives = sorted(
-            [tuple(sol.objectives) for sol in runs[0].solutions]
-        )
-
-        if not merged_front_objectives:
-            continue
-
-        combined_objectives = np.array(merged_front_objectives)
-
-        nd_sorting = NonDominatedSorting()
-        non_dominated_indices = nd_sorting.do(
-            combined_objectives, only_non_dominated_front=True
-        )
-        merged_front = combined_objectives[non_dominated_indices]
-
+        merged_front = merge_runs_to_non_dominated_front(runs)
         if merged_front.size > 0:
             hypervolume = hypervolume_indicator.do(merged_front)
         else:
-            hypervolume = -np.inf
+            hypervolume = np.nan
 
         merged_front, flipped_indices = flip_objectives_to_positive(merged_front)
         all_flipped_indices.update(flipped_indices)

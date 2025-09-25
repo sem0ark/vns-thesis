@@ -8,7 +8,6 @@ from pymoo.termination.max_time import TimeBasedTermination
 from pymoo.util.nds.non_dominated_sorting import NonDominatedSorting
 
 from src.cli.cli import Metadata, SavedRun, SavedSolution
-
 from src.examples.mokp.mokp_problem import MOKPProblem, MOKPPymoo
 
 

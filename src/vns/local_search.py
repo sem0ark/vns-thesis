@@ -1,7 +1,9 @@
-from ast import TypeVar
 import random
+from ast import TypeVar
 from typing import Callable, Iterable
-from src.vns.abstract import NeighborhoodOperator, Solution, VNSOptimizerAbstract
+
+from src.vns.abstract import (NeighborhoodOperator, Solution,
+                              VNSOptimizerAbstract)
 from src.vns.acceptance import AcceptBeam, ComparisonResult, compare
 
 T = TypeVar("T")

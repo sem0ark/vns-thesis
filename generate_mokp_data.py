@@ -1,8 +1,8 @@
-from copy import deepcopy
 import json
 import random
+from copy import deepcopy
 from pathlib import Path
-from typing import Dict, Any
+from typing import Any, Dict
 
 
 def generate_class_c(n: int) -> Dict[str, Any]:

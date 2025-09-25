@@ -1,7 +1,7 @@
-from enum import Enum
 import logging
 import random
 from collections import deque
+from enum import Enum
 from typing import Callable
 
 from src.vns.abstract import AcceptanceCriterion, Solution

@@ -7,8 +7,8 @@ from pymoo.optimize import minimize
 from pymoo.termination.max_time import TimeBasedTermination
 from pymoo.util.nds.non_dominated_sorting import NonDominatedSorting
 
-from src.examples.mokp.mokp_problem import MOKPProblem, MOKPPymoo
 from src.cli.cli import Metadata, SavedRun, SavedSolution
+from src.examples.mokp.mokp_problem import MOKPProblem, MOKPPymoo
 
 
 def solve_mokp_spea2(instance_path: str, run_seconds: float) -> SavedRun:

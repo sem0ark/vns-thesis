@@ -1,25 +1,21 @@
 import itertools
 import logging
-from pathlib import Path
 import random
 from functools import lru_cache
+from pathlib import Path
 from typing import Any, Callable, Iterable
 
 import numpy as np
 
+from src.cli.cli import CLI, Metadata, SavedRun, SavedSolution
 from src.examples.mokp.mokp_problem import MOKPProblem, MOKPSolution
-from src.vns.abstract import VNSOptimizerAbstract
-from src.vns.acceptance import (
-    AcceptBatch,
-    AcceptBatchSkewed,
-    AcceptBeam,
-    AcceptBeamSkewed,
-)
-from src.vns.local_search import best_improvement, first_improvement, mo_vnd, noop
-from src.vns.optimizer import ElementwiseVNSOptimizer, FrontwiseVNSOptimizer
-
 from src.examples.vns_runner_utils import run_vns_optimizer
-from src.cli.cli import CLI, SavedRun, Metadata, SavedSolution
+from src.vns.abstract import VNSOptimizerAbstract
+from src.vns.acceptance import (AcceptBatch, AcceptBatchSkewed, AcceptBeam,
+                                AcceptBeamSkewed)
+from src.vns.local_search import (best_improvement, first_improvement, mo_vnd,
+                                  noop)
+from src.vns.optimizer import ElementwiseVNSOptimizer, FrontwiseVNSOptimizer
 
 logger = logging.getLogger("mokp-solver")
 

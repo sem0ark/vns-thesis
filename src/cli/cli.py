@@ -1,14 +1,14 @@
-from dataclasses import asdict
 import json
-from pathlib import Path
 import re
+from dataclasses import asdict
+from pathlib import Path
 from typing import Callable, Self
 
 import click
 import numpy as np
 
-from src.cli.metrics import display_metrics, calculate_metrics, plot_runs
-from src.cli.shared import SavedRun, SavedSolution, Metadata
+from src.cli.metrics import display_metrics, plot_runs
+from src.cli.shared import Metadata, SavedRun, SavedSolution
 
 BASE = Path(__file__).parent.parent.parent / "runs"
 BASE.mkdir(exist_ok=True, parents=True)
@@ -147,9 +147,7 @@ class CLI:
             type=str,
         )
         @click.pass_context
-        def show_command(
-            ctx, problem, instance, max_time, filter_configs
-        ):
+        def show_command(ctx, problem, instance, max_time, filter_configs):
             ctx.ensure_object(dict)
             ctx.obj["problem_name"] = problem
             ctx.obj["instance_path"] = Path(instance)
@@ -185,10 +183,8 @@ class CLI:
 
             click.echo("Displaying metrics...")
 
-            runs = _load_and_filter_runs(
-                problem_name, instance_name, filter_configs
-            )
-            display_metrics(calculate_metrics(ctx.obj["instance_path"], runs, max_time_seconds))
+            runs = _load_and_filter_runs(problem_name, instance_name, filter_configs)
+            display_metrics(ctx.obj["instance_path"], runs, max_time_seconds)
 
         @click.group(help="Run an optimization algorithm for a given problem.")
         @click.option(
@@ -257,7 +253,7 @@ class CLI:
                     )
                     destination_path = (
                         BASE
-                        / f"mokp_{instance_name}_{timestamp.split('.')[0].replace(':', '-')}.json"
+                        / f"mokp_{instance_name}_{config_name}_{timestamp.split('.')[0].replace(':', '-')}.json"
                     )
 
                     with open(destination_path, "w") as f:

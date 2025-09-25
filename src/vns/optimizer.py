@@ -1,13 +1,8 @@
 import logging
 from typing import Callable, Iterable, TypeVar
 
-from src.vns.abstract import (
-    AcceptanceCriterion,
-    Problem,
-    VNSOptimizerAbstract,
-    Solution,
-)
-
+from src.vns.abstract import (AcceptanceCriterion, Problem, Solution,
+                              VNSOptimizerAbstract)
 
 T = TypeVar("T")
 

@@ -3,8 +3,8 @@ import random
 from typing import Iterable
 
 import numpy as np
-from pymoo.core.problem import ElementwiseProblem
 import xxhash
+from pymoo.core.problem import ElementwiseProblem
 
 from src.vns.abstract import Problem, Solution
 
