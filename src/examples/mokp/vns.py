@@ -1,7 +1,7 @@
 import itertools
 import logging
 import random
-from functools import lru_cache
+from functools import lru_cache, partial
 from pathlib import Path
 from typing import Any, Callable, Iterable
 
@@ -150,15 +150,21 @@ def prepare_optimizers(
 
     if instance_path:
         problem = MOKPProblem.load(instance_path)
-
-        alpha_weights = np.mean(problem.profits, axis=1)
         num_objectives = problem.num_objectives
 
+        # Set alpha so that alpha * max-distance approximately one item from a set
+        alpha_weights = np.mean(problem.profits, axis=1)
+
+    # Ensure state is cleared in separate runs
     acceptance_criteria = [
-        ("batch", AcceptBatch()),
+        ("batch", AcceptBatch),
         (
             "skewed",
-            AcceptBatchSkewed(alpha_weights, MOKPProblem.calculate_solution_distance),
+            partial(
+                AcceptBatchSkewed,
+                alpha_weights,
+                MOKPProblem.calculate_solution_distance,
+            ),
         ),
     ]
     local_search_functions = [
@@ -210,7 +216,7 @@ def prepare_optimizers(
     ]
 
     for (
-        (acc_name, acc_func),
+        (acc_name, make_acc),
         (search_name, search_func),
         (shake_name, shake_func),
         k,
@@ -222,10 +228,10 @@ def prepare_optimizers(
         config = ElementwiseVNSOptimizer(
             problem=problem,
             search_functions=[search_func] * k,
-            acceptance_criterion=acc_func,
+            acceptance_criterion=make_acc(),
             shake_function=shake_func,
             name=config_name,
-            version=9,
+            version=10,
         )
 
         def runner_func(run_time, _config=config):

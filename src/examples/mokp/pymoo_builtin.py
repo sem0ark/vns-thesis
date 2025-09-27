@@ -5,6 +5,7 @@ from typing import Any, cast
 import numpy as np
 from pymoo.algorithms.moo.nsga2 import NSGA2
 from pymoo.algorithms.moo.spea2 import SPEA2
+from pymoo.operators.sampling.rnd import BinaryRandomSampling
 from pymoo.optimize import minimize
 from pymoo.termination.max_time import TimeBasedTermination
 from pymoo.util.nds.non_dominated_sorting import NonDominatedSorting
@@ -75,6 +76,7 @@ def prepare_optimizers():
             make_runner(
                 name,
                 algorithm(
+                    sampling=BinaryRandomSampling(),
                     eliminate_duplicates=True,
                     pop_size=population,
                 ),
