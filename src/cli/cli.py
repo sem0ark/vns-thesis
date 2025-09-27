@@ -187,8 +187,14 @@ class CLI:
                 ctx.obj["max_time_seconds"] = parse_time_string(max_time)
 
             @problem_show_group.command(name="plot", help="Plot the metrics.")
+            @click.option(
+                "--headers",
+                help="A comma-separated list of objective names to replace default Z1, Z2, etc.",
+                default="",
+                type=str,
+            )
             @click.pass_context
-            def show_plot(ctx):
+            def show_plot(ctx, headers):
                 problem_name = ctx.obj["problem_name"]
                 instance_name = ctx.obj["instance_name"]
                 max_time_seconds = ctx.obj["max_time_seconds"]
@@ -199,7 +205,7 @@ class CLI:
                 runs_to_show = _filter_runs(
                     all_runs, max_time_seconds, filter_configs, select_latest_only=True
                 )
-                plot_runs(ctx.obj["instance_path"], all_runs, runs_to_show)
+                plot_runs(ctx.obj["instance_path"], all_runs, runs_to_show, objective_names=headers)
 
             @problem_show_group.command(name="metrics", help="Display raw metrics.")
             @click.option(

@@ -581,6 +581,8 @@ def plot_runs(
     instance_path: Path,
     all_runs_grouped: Dict[str, List[SavedRun]],
     filtered_runs_grouped: dict[str, list[SavedRun]],
+    /,
+    **kwargs: Any,
 ) -> None:
     print("""Plotting the results:
 Controls:
@@ -622,10 +624,7 @@ You can also click on graphs in legend to show/hide any specific one.
     # Calculate hypervolume for each run and prepare data for plotting
     plot_data = []
 
-    # Make a reference point, that it obviously worse then any possible solution
-    hypervolume_indicator = HV(
-        ref_point=_get_hypervolume_reference_point([reference_front]) * 2
-    )
+    hypervolume_indicator = HV(ref_point=(0, 0))
 
     for run_name, runs in filtered_runs_grouped.items():
         if not runs:
@@ -678,20 +677,28 @@ You can also click on graphs in legend to show/hide any specific one.
     )
     lines_dict["Reference Front"] = ref_line
 
+    objective_names: list[str] = ["Z1", "Z2"]
+    if kwargs.get("objective_names"):
+        objective_names = [
+            name.strip()
+            for name in kwargs.get("objective_names", "").split(",")
+        ]
+
     if all_runs:
         metadata = all_runs[0].metadata
         title_str = f"{metadata.problem_name.upper()}, {metadata.instance_name}, {metadata.run_time_seconds}s"
 
         if all_flipped_indices:
             flipped_obj_labels = [
-                f"Z{i + 1}" for i in sorted(list(all_flipped_indices))
+                objective_names[i]
+                for i in sorted(list(all_flipped_indices))
             ]
             note = f" (Note: {', '.join(flipped_obj_labels)} were negated)"
             title_str += note
 
         ax.set_title(title_str)
-        ax.set_xlabel("Z1")
-        ax.set_ylabel("Z2")
+        ax.set_xlabel(objective_names[0])
+        ax.set_ylabel(objective_names[1])
 
     ax.grid(True)
 
