@@ -1,7 +1,6 @@
 import logging
 
-import src.examples.mokp.nsga2
-import src.examples.mokp.spea2
+import src.examples.mokp.pymoo_builtin
 import src.examples.mokp.vns
 from src.cli.cli import CLI
 
@@ -30,8 +29,7 @@ if __name__ == "__main__":
     setup_logging(level=logging.INFO)
     cli = CLI()
 
-    src.examples.mokp.nsga2.register_cli(cli)
-    src.examples.mokp.spea2.register_cli(cli)
+    src.examples.mokp.pymoo_builtin.register_cli(cli)
     src.examples.mokp.vns.register_cli(cli)
 
     cli.run()

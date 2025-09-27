@@ -626,16 +626,13 @@ You can also click on graphs in legend to show/hide any specific one.
 
     runs_grouped = {
         # take latest run with correct max run time.
-        name: [
-            sorted(
-                [
-                    run
-                    for run in runs
-                    if abs(run.metadata.run_time_seconds - max_time_seconds) < 1e-3
-                ],
-                key=lambda run: run.metadata.date,
-            )[-1]
-        ]
+        name: sorted(
+            [
+                run for run in runs
+                if abs(run.metadata.run_time_seconds - max_time_seconds) < 1e-3
+            ],
+            key=lambda run: run.metadata.date,
+        )
         for name, runs in runs_grouped.items()
     }
 
@@ -664,6 +661,9 @@ You can also click on graphs in legend to show/hide any specific one.
     hypervolume_indicator = HV(ref_point=(0, 0))
 
     for run_name, runs in runs_grouped.items():
+        if not runs:
+            continue
+
         merged_front = merge_runs_to_non_dominated_front(runs)
         if merged_front.size > 0:
             hypervolume = hypervolume_indicator.do(merged_front)

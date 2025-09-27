@@ -1,4 +1,3 @@
-import random
 from ast import TypeVar
 from typing import Callable, Iterable
 
@@ -7,12 +6,12 @@ from src.vns.abstract import (NeighborhoodOperator, Solution,
 from src.vns.acceptance import AcceptBeam, ComparisonResult, compare
 
 T = TypeVar("T")
-SingleSearchFunction = Callable[[Solution[T], VNSOptimizerAbstract[T]], Solution[T]]
+SingleSearchFunction = Callable[[Solution[T], VNSOptimizerAbstract[T]], Iterable[Solution[T]]]
 
 
 def noop(*_args):
-    def search(initial: Solution, _config: VNSOptimizerAbstract) -> Solution:
-        return initial
+    def search(initial: Solution, _config: VNSOptimizerAbstract) -> Iterable[Solution]:
+        yield initial
 
     return search
 
@@ -20,7 +19,7 @@ def noop(*_args):
 def best_improvement(operator: NeighborhoodOperator):
     """Go as far as possible, each time moving to the best near neighbor."""
 
-    def search(initial: Solution, config: VNSOptimizerAbstract) -> Solution:
+    def search(initial: Solution, config: VNSOptimizerAbstract) -> Iterable[Solution]:
         current = initial
 
         while True:
@@ -41,7 +40,7 @@ def best_improvement(operator: NeighborhoodOperator):
             else:
                 break
 
-        return current
+        yield current
 
     return search
 
@@ -49,7 +48,7 @@ def best_improvement(operator: NeighborhoodOperator):
 def first_improvement(operator: NeighborhoodOperator):
     """Go as far as possible, each time moving to the first better near neighbor."""
 
-    def search(initial: Solution, config: VNSOptimizerAbstract) -> Solution:
+    def search(initial: Solution, config: VNSOptimizerAbstract) -> Iterable[Solution]:
         current = initial
 
         while True:
@@ -67,7 +66,7 @@ def first_improvement(operator: NeighborhoodOperator):
             if not improvement_found:
                 break
 
-        return current
+        yield current
 
     return search
 
@@ -75,7 +74,7 @@ def first_improvement(operator: NeighborhoodOperator):
 def first_improvement_quick(operator: NeighborhoodOperator):
     """Move to the first better near neighbor once."""
 
-    def search(initial: Solution, config: VNSOptimizerAbstract) -> Solution:
+    def search(initial: Solution, config: VNSOptimizerAbstract) -> Iterable[Solution]:
         current = initial
 
         for neighbor in operator(current, config):
@@ -85,29 +84,33 @@ def first_improvement_quick(operator: NeighborhoodOperator):
             ):
                 return neighbor
 
-        return current
+        yield current
 
     return search
 
 
 def composite(search_functions: list[SingleSearchFunction]):
-    def search(initial: Solution, config: VNSOptimizerAbstract) -> Solution:
+    def search(initial: Solution, config: VNSOptimizerAbstract) -> Iterable[Solution]:
         current = initial
 
         vnd_level = 0
         while vnd_level < len(search_functions):
-            new_solution_from_ls = search_functions[vnd_level](current, config)
+            improved = False
+            local_best_solution = current
+            for local_solution in search_functions[vnd_level](current, config):
+                if compare(local_solution.objectives, local_best_solution.objectives) == ComparisonResult.STRICTLY_BETTER:
+                    improved = True
+                    local_best_solution = local_solution
+                    yield local_best_solution
 
-            if (
-                compare(new_solution_from_ls.objectives, current.objectives)
-                == ComparisonResult.STRICTLY_BETTER
-            ):
+            if improved:
                 vnd_level = 0
-                current = new_solution_from_ls
+                current = local_best_solution
+                yield local_best_solution
             else:
                 vnd_level += 1
 
-        return current
+        yield current
 
     return search
 

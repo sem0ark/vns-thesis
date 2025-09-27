@@ -1,5 +1,6 @@
 import json
 import re
+import glob
 from dataclasses import asdict
 from pathlib import Path
 from typing import Callable, Self
@@ -38,7 +39,7 @@ def parse_time_string(time_str: str) -> int:
 
 class NpEncoder(json.JSONEncoder):
     def default(self, o):
-        if isinstance(o, np.bool):
+        if isinstance(o, (np.bool_, np.bool)):
             return bool(o)
         if isinstance(o, np.integer):
             return int(o)
@@ -58,8 +59,6 @@ def _load_and_filter_runs(
     Loads and filters saved run files based on criteria, returning the latest
     version of each unique configuration.
     """
-    problem_name = "mokp"
-
     all_files = BASE.glob(f"{problem_name}_{instance_name}_*.json")
 
     runs_by_name = {}
@@ -119,100 +118,99 @@ class CLI:
             pass
 
         @click.group(help="Show and plot metrics.")
-        @click.option(
-            "-p",
-            "--problem",
-            required=True,
-            type=str,
-            help="Name of the problem class the instances come from.",
-        )
-        @click.option(
-            "-i",
-            "--instance",
-            required=True,
-            type=click.Path(exists=True),
-            help="Path to the problem instance file.",
-        )
-        @click.option(
-            "-t",
-            "--max-time",
-            help="Filter by maximum execution time (e.g., 30s, 1h).",
-            required=True,
-        )
-        @click.option(
-            "-f",
-            "--filter-configs",
-            help="A comma-separated list of config names or substrings to match.",
-            default="",
-            type=str,
-        )
-        @click.pass_context
-        def show_command(ctx, problem, instance, max_time, filter_configs):
-            ctx.ensure_object(dict)
-            ctx.obj["problem_name"] = problem
-            ctx.obj["instance_path"] = Path(instance)
-            ctx.obj["instance_name"] = Path(instance).stem
-
-            ctx.obj["max_time"] = max_time
-            ctx.obj["filter_configs"] = filter_configs
-            ctx.obj["max_time_seconds"] = parse_time_string(max_time)
-
-        @show_command.command(name="plot", help="Plot the metrics.")
-        @click.pass_context
-        def show_plot(ctx):
-            problem_name = ctx.obj["problem_name"]
-            instance_name = ctx.obj["instance_name"]
-            max_time_seconds = ctx.obj["max_time_seconds"]
-            filter_configs = ctx.obj["filter_configs"]
-
-            click.echo("Plotting metrics...")
-            runs = _load_and_filter_runs(
-                problem_name,
-                instance_name,
-                filter_configs,
-            )
-            plot_runs(ctx.obj["instance_path"], runs, max_time_seconds)
-
-        @show_command.command(name="metrics", help="Display raw metrics.")
-        @click.option(
-            "-o",
-            "--output-file",
-            type=click.Path(path_type=Path),
-            default=None,
-            help="File path (including extension .csv or .xlsx) to export the tables.",
-        )
-        @click.pass_context
-        def show_metrics(ctx, output_file):
-            problem_name = ctx.obj["problem_name"]
-            instance_name = ctx.obj["instance_name"]
-            max_time_seconds = ctx.obj["max_time_seconds"]
-            filter_configs = ctx.obj["filter_configs"]
-
-            click.echo("Displaying metrics...")
-
-            runs = _load_and_filter_runs(problem_name, instance_name, filter_configs)
-            display_metrics(ctx.obj["instance_path"], runs, max_time_seconds, output_file)
-
-        @click.group(help="Run an optimization algorithm for a given problem.")
-        @click.option(
-            "-t",
-            "--max-time",
-            required=True,
-            help="Maximum execution time (e.g., 30s, 1h).",
-        )
-        @click.option(
-            "-i",
-            "--instance",
-            required=True,
-            type=click.Path(exists=True),
-            help="Path to the problem instance file.",
-        )
-        def run_command(max_time, instance):
+        def show_command():
             pass
 
-        def create_problem_command(problem_name, configs):
+        def create_problem_show_command(problem_name):
+            """Generates a command group for a specific problem under 'show'."""
+            @show_command.group(
+                name=problem_name,
+                help=f"Show metrics for the '{problem_name}' problem."
+            )
+            @click.option(
+                "-i",
+                "--instance",
+                required=True,
+                type=click.Path(exists=True),
+                help="Path to the problem instance file.",
+            )
+            @click.option(
+                "-t",
+                "--max-time",
+                help="Filter by maximum execution time (e.g., 30s, 1h).",
+                required=True,
+            )
+            @click.option(
+                "-f",
+                "--filter-configs",
+                help="A comma-separated list of config names or substrings to match.",
+                default="",
+                type=str,
+            )
+            @click.pass_context
+            def problem_show_group(ctx, instance, max_time, filter_configs):
+                # Context object is created and populated here
+                ctx.ensure_object(dict)
+                ctx.obj["problem_name"] = problem_name # Passed from the outer function
+                ctx.obj["instance_path"] = Path(instance)
+                ctx.obj["instance_name"] = Path(instance).stem
+
+                ctx.obj["max_time"] = max_time
+                ctx.obj["filter_configs"] = filter_configs
+                ctx.obj["max_time_seconds"] = parse_time_string(max_time)
+
+            @problem_show_group.command(name="plot", help="Plot the metrics.")
+            @click.pass_context
+            def show_plot(ctx):
+                problem_name = ctx.obj["problem_name"]
+                instance_name = ctx.obj["instance_name"]
+                max_time_seconds = ctx.obj["max_time_seconds"]
+                filter_configs = ctx.obj["filter_configs"]
+
+                click.echo("Plotting metrics...")
+                runs = _load_and_filter_runs(
+                    problem_name,
+                    instance_name,
+                    filter_configs,
+                )
+                print("ctx.obj['instance_path'], runs, max_time_seconds", ctx.obj["instance_path"], max_time_seconds)
+                plot_runs(ctx.obj["instance_path"], runs, max_time_seconds)
+
+            @problem_show_group.command(name="metrics", help="Display raw metrics.")
+            @click.option(
+                "-o",
+                "--output-file",
+                type=click.Path(path_type=Path),
+                default=None,
+                help="File path (including extension .csv or .xlsx) to export the tables.",
+            )
+            @click.pass_context
+            def show_metrics(ctx, output_file):
+                problem_name = ctx.obj["problem_name"]
+                instance_name = ctx.obj["instance_name"]
+                max_time_seconds = ctx.obj["max_time_seconds"]
+                filter_configs = ctx.obj["filter_configs"]
+
+                click.echo("Displaying metrics...")
+
+                runs = _load_and_filter_runs(problem_name, instance_name, filter_configs)
+                display_metrics(ctx.obj["instance_path"], runs, max_time_seconds, output_file)
+
+            return problem_show_group
+        
+        @click.group(help="Run an optimization algorithm for a given problem.")
+        def run_command():
+            pass
+
+        def create_problem_run_command(problem_name, configs):
             @run_command.command(
                 name=problem_name, help=f"Run the '{problem_name}' optimization."
+            )
+            @click.option(
+                "-t",
+                "--max-time",
+                required=True,
+                help="Maximum execution time (e.g., 30s, 1h).",
             )
             @click.option(
                 "-f",
@@ -220,11 +218,15 @@ class CLI:
                 help="List of config name substrings to match example 'k1,fi or k2,bi'.\n",
                 default=None,
             )
-            @click.pass_context
-            def problem_runner(ctx, filter_configs):
-                args = ctx.parent.params
-                run_time_seconds = parse_time_string(args["max_time"])
-                instance = args["instance"]
+            @click.option(
+                "-i",
+                "--instances",
+                required=True,
+                type=str,
+                help="Path pattern (with wildcards) to problem instance files.",
+            )
+            def problem_runner(max_time: str, filter_configs: str, instances: str):
+                run_time_seconds = parse_time_string(max_time) 
 
                 filter_groups = [
                     [f.strip() for f in filter_group.strip().lower().split(",")]
@@ -248,30 +250,43 @@ class CLI:
                         f"Failed to match any runner with filters: {filter_groups}"
                     )
 
-                click.echo(f"Running configs for problem: {problem_name}")
-                for config_name, runner in configs_filtered.items():
-                    click.echo(
-                        f"Running {config_name} on problem '{problem_name}' from instance '{instance}' for {run_time_seconds} seconds."
-                    )
-                    results: SavedRun = runner(instance, run_time_seconds)
-                    instance_name, timestamp = (
-                        results.metadata.instance_name,
-                        results.metadata.date,
-                    )
-                    destination_path = (
-                        BASE
-                        / f"mokp_{instance_name}_{config_name}_{timestamp.split('.')[0].replace(':', '-')}.json"
-                    )
+                instance_paths = glob.glob(instances)
+                if not instance_paths:
+                    click.echo(f"Warning: No files found matching pattern '{instances}'. Exiting...")
+                    return
 
-                    with open(destination_path, "w") as f:
-                        json.dump(asdict(results), f, cls=NpEncoder)
+                click.echo(f"Running configs for problem: {problem_name} on {len(instance_paths)} instance(s).")
+                
+                for instance_path_str in instance_paths:
+                    instance_path = Path(instance_path_str)
+                    click.echo("-" * 50)
+                    click.echo(f"Processing instance: {instance_path}")
 
-                    print(f"Optimization run data saved to: {destination_path}")
+                    for config_name, runner in configs_filtered.items():
+                        click.echo(
+                            f"Running {config_name} on problem '{problem_name}' from instance '{instance_path}' for {run_time_seconds} seconds."
+                        )
+                        results: SavedRun = runner(instance_path_str, run_time_seconds)
+                        instance_name, timestamp = (
+                            results.metadata.instance_name,
+                            results.metadata.date,
+                        )
+
+                        destination_path = (
+                            BASE
+                            / f"{problem_name}_{instance_name}_{config_name}_{timestamp.split('.')[0].replace(':', '-')}.json"
+                        )
+
+                        with open(destination_path, "w") as f:
+                            json.dump(asdict(results), f, cls=NpEncoder)
+
+                        print(f"Optimization run data saved to: {destination_path}")
 
             return problem_runner
 
         for problem_name, configs in self.runners.items():
-            run_command.add_command(create_problem_command(problem_name, configs))
+            run_command.add_command(create_problem_run_command(problem_name, configs))
+            show_command.add_command(create_problem_show_command(problem_name))
 
         cli.add_command(show_command, name="show")
         cli.add_command(run_command, name="run")
