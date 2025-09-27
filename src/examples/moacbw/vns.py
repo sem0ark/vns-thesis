@@ -5,54 +5,20 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any, Callable, Iterable
 
-import numpy as np
-
 from src.cli.cli import CLI, Metadata, SavedRun, SavedSolution
-from src.examples.mokp.problem import MOKPProblem, MOKPSolution
+from src.examples.moacbw.problem import MOACBWProblem, MOACBWSolution
 from src.examples.vns_runner_utils import run_vns_optimizer
 from src.vns.abstract import VNSOptimizerAbstract
 from src.vns.acceptance import AcceptBatch, AcceptBatchSkewed
 from src.vns.local_search import (
     best_improvement,
-    composite,
     first_improvement,
     first_improvement_quick,
     noop,
 )
 from src.vns.optimizer import ElementwiseVNSOptimizer
 
-logger = logging.getLogger("mokp-solver")
-
-
-def add_remove_op(
-    solution: MOKPSolution, config: VNSOptimizerAbstract
-) -> Iterable[MOKPSolution]:
-    """Generates neighbors by adding or removing a single item."""
-    solution_data = solution.data
-    num_items = len(solution_data)
-
-    for i in shuffled(range(num_items)):
-        new_data = solution_data.copy()
-        new_data[i] = 1 - new_data[i]
-        yield solution.new(new_data)
-
-
-def swap_op(
-    solution: MOKPSolution, config: VNSOptimizerAbstract
-) -> Iterable[MOKPSolution]:
-    """Generates neighbors by swapping one selected item with one unselected item."""
-    solution_data = solution.data
-
-    selected_items = np.where(solution_data == 1)[0]
-    unselected_items = np.where(solution_data == 0)[0]
-
-    for i in shuffled(selected_items):
-        for j in shuffled(unselected_items):
-            new_data = solution_data.copy()
-            new_data[i] = 0
-            new_data[j] = 1
-
-            yield solution.new(new_data)
+logger = logging.getLogger("moacbw-solver")
 
 
 def shuffled(lst: Iterable) -> list[Any]:
@@ -61,48 +27,38 @@ def shuffled(lst: Iterable) -> list[Any]:
     return lst
 
 
-def shake_add_remove(
-    solution: MOKPSolution, k: int, _config: VNSOptimizerAbstract
-) -> MOKPSolution:
-    """
-    Randomly adds or removes 'k' items.
-    """
-    solution_data = solution.data.copy()
+def swap_op(
+    solution: MOACBWSolution, config: VNSOptimizerAbstract
+) -> Iterable[MOACBWSolution]:
+    """Generates neighbors by swapping one selected item with one unselected item."""
+    solution_data = solution.data
 
-    for _ in range(k):
-        is_add_operation = random.random() > 0.5
+    index_order = shuffled(range(solution_data.size))
 
-        if is_add_operation:
-            unselected_items = np.where(solution_data == 0)[0]
-            if unselected_items.size > 0:
-                item_to_add = random.choice(unselected_items)
-                solution_data[item_to_add] = 1
-        else:
-            selected_items = np.where(solution_data == 1)[0]
-            if selected_items.size > 0:
-                item_to_remove = random.choice(selected_items)
-                solution_data[item_to_remove] = 0
+    for i in index_order:
+        for j in index_order:
+            if i >= j:
+                continue
 
-    return solution.new(solution_data)
+            new_data = solution_data.copy()
+            new_data[i], new_data[j] = new_data[j], new_data[i]
+            yield solution.new(new_data)
 
 
 def shake_swap(
-    solution: MOKPSolution, k: int, _config: VNSOptimizerAbstract
-) -> MOKPSolution:
+    solution: MOACBWSolution, k: int, _config: VNSOptimizerAbstract
+) -> MOACBWSolution:
     """
-    Randomly swaps a selected item with an unselected item 'k' times.
+    Randomly swaps two vertcies 'k' times.
     """
     solution_data = solution.data.copy()
+    n = solution_data.size
 
     for _ in range(k):
-        selected_items = np.where(solution_data == 1)[0]
-        unselected_items = np.where(solution_data == 0)[0]
+        i = random.randint(0, n - 1)
+        j = random.randint(0, n - 1)
 
-        if selected_items.size > 0 and unselected_items.size > 0:
-            item_to_swap_out = random.choice(selected_items)
-            item_to_swap_in = random.choice(unselected_items)
-            solution_data[item_to_swap_out] = 0
-            solution_data[item_to_swap_in] = 1
+        solution_data[i], solution_data[j] = solution_data[j], solution_data[i]
 
     return solution.new(solution_data)
 
@@ -125,7 +81,7 @@ def run_instance_with_config(
             run_time_seconds=int(run_time_seconds),
             name=optimizer.name,
             version=optimizer.version,
-            problem_name="mokp",
+            problem_name="moacbw",
             instance_name=Path(instance_path).stem,
         ),
         solutions=[
@@ -145,20 +101,18 @@ def prepare_optimizers(
 
     optimizers: dict[str, Callable[[float], SavedRun]] = {}
     alpha_weights = []
-    num_objectives = 1
     problem: Any = None
 
     if instance_path:
-        problem = MOKPProblem.load(instance_path)
-
-        alpha_weights = np.mean(problem.profits, axis=1)
-        num_objectives = problem.num_objectives
+        problem = MOACBWProblem.load(instance_path)
+        num_nodes = problem.num_nodes
+        alpha_weights = [num_nodes / 2, num_nodes / 2]
 
     acceptance_criteria = [
         ("batch", AcceptBatch()),
         (
             "skewed",
-            AcceptBatchSkewed(alpha_weights, MOKPProblem.calculate_solution_distance),
+            AcceptBatchSkewed(alpha_weights, MOACBWProblem.calculate_solution_distance),
         ),
     ]
     local_search_functions = [
@@ -174,38 +128,11 @@ def prepare_optimizers(
                     ("FI", first_improvement),
                     ("QFI", first_improvement_quick),
                 ],
-                [("op_ar", add_remove_op), ("op_swap", swap_op)],
+                [("op_swap", swap_op)],
             )
-        ],
-        *[
-            (
-                f"composite_MOVND_{search_name}_ar_swap",
-                composite(
-                    [
-                        composite(
-                            [
-                                search_func_factory(add_remove_op, obj_i)
-                                for obj_i in range(num_objectives)
-                            ]
-                        ),
-                        composite(
-                            [
-                                search_func_factory(swap_op, obj_i)
-                                for obj_i in range(num_objectives)
-                            ]
-                        ),
-                    ]
-                ),
-            )
-            for (search_name, search_func_factory) in [
-                ("BI", best_improvement),
-                ("FI", first_improvement),
-                ("QFI", first_improvement_quick),
-            ]
         ],
     ]
     shake_functions = [
-        ("shake_ar", shake_add_remove),
         ("shake_swap", shake_swap),
     ]
 
@@ -225,7 +152,7 @@ def prepare_optimizers(
             acceptance_criterion=acc_func,
             shake_function=shake_func,
             name=config_name,
-            version=9,
+            version=1,
         )
 
         def runner_func(run_time, _config=config):
@@ -246,7 +173,7 @@ def register_cli(cli: CLI) -> None:
         return run
 
     cli.register_runner(
-        "mokp",
+        "moacbw",
         [
             (optimizer_name, make_runner(optimizer_name))
             for optimizer_name in prepare_optimizers(None).keys()

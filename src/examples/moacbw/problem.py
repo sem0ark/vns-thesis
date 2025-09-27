@@ -15,13 +15,10 @@ class _MOACBWSolution(Solution[np.ndarray]):
     data: A 1D numpy array representing the permutation of vertex indices (0 to N-1).
     The position in the array determines the position of a given node (0 to N-1).
     """
-
     def equals(self, other: Solution[np.ndarray]) -> bool:
-        """Checks if the two permutation arrays are identical."""
-        return np.array_equal(self.data, other.data)
+        return hash(self) == hash(other)
 
     def get_hash(self) -> int:
-        """Generates a hash based on the permutation array data."""
         h = xxhash.xxh64()
         h.update(self.data.tobytes())
         return h.intdigest()

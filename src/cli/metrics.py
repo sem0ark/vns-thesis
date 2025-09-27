@@ -16,6 +16,8 @@ from pymoo.util.nds.non_dominated_sorting import NonDominatedSorting
 
 from src.cli.shared import SavedRun
 
+logger = logging.getLogger("cli/metrics.py")
+
 
 def load_instance_data_json(file_path: Path) -> dict[str, Any]:
     if not file_path.exists():
@@ -263,10 +265,10 @@ def calculate_metrics(
 
     predefined_front = problem_data.get("reference_front")
     if predefined_front:
-        print("Got a predefined reference front!")
+        logger.info("Got a predefined reference front!")
         reference_front = np.array(predefined_front)
     else:
-        print("Merging all solutiosn to get a reference front...")
+        logger.info("Merging all solutiosn to get a reference front...")
         reference_front = merge_runs_to_non_dominated_front(all_runs)
 
     if reference_front.size == 0:
@@ -387,18 +389,18 @@ def export_table(
 
     if output_path.suffix.lower() == ".csv":
         df.to_csv(output_path, index=False)
-        print(f"Metrics successfully exported to CSV: {output_path}")
+        logger.info(f"Metrics successfully exported to CSV: {output_path}")
     elif output_path.suffix.lower() in [".xlsx", ".xls"]:
         try:
             with pd.ExcelWriter(output_path, engine="xlsxwriter") as writer:
                 df.to_excel(writer, sheet_name=sheet_name, index=False)
-            print(f"Metrics successfully exported to Excel: {output_path}")
+            logger.info(f"Metrics successfully exported to Excel: {output_path}")
         except ImportError:
-            print(
+            logger.error(
                 "Error: Please install 'xlsxwriter' (or 'openpyxl') for Excel export."
             )
             df.to_csv(output_path.with_suffix(".csv"), index=False)
-            print(f"Falling back to CSV export: {output_path.with_suffix('.csv')}")
+            logger.warning(f"Falling back to CSV export: {output_path.with_suffix('.csv')}")
     else:
         raise ValueError(
             f"Unsupported export format: {output_path.suffix}. Use .csv or .xlsx."
@@ -442,7 +444,7 @@ def prepare_coverage_table_data(
             row.append(f"{coverage:.4f}" if not np.isnan(coverage) else "N/A")
         table_data.append(row)
 
-    print(f"(Hiding runs completely dominated by another run: {list(dominated_runs)})")
+    logger.info(f"(Hiding runs completely dominated by another run: {list(dominated_runs)})")
 
     return headers, table_data
 
@@ -514,7 +516,7 @@ def display_metrics(
         instance_path, all_runs_grouped, filtered_runs_grouped
     )
 
-    print("\n--- Unary Metrics Table ---")
+    logger.info("--- Unary Metrics Table ---")
     print(
         tabulate.tabulate(
             unary_table_data, headers=unary_headers, tablefmt="fancy_grid"
@@ -532,7 +534,7 @@ def display_metrics(
         coverage_metrics
     )
 
-    print("\n--- Coverage (C(A, B)) Matrix ---")
+    logger.info("--- Coverage (C(A, B)) Matrix ---")
     print(
         tabulate.tabulate(
             coverage_table_data, headers=coverage_headers, tablefmt="fancy_grid"
@@ -584,7 +586,7 @@ def plot_runs(
     /,
     **kwargs: Any,
 ) -> None:
-    print("""Plotting the results:
+    logger.info("""Plotting the results:
 Controls:
 Press 'h' to hide all graphs except reference front.
 Use arrow keys to move legend around.
@@ -597,16 +599,16 @@ You can also click on graphs in legend to show/hide any specific one.
     predefined_front = problem_data.get("reference_front")
 
     if predefined_front:
-        print("Got a predefined reference front!")
+        logger.info("Got a predefined reference front!")
         predefined_front_np, _ = flip_objectives_to_positive(np.array(predefined_front))
         reference_front = -predefined_front_np
     else:
-        print("Merging all runs to get an approximate reference front...")
+        logger.info("Merging all runs to get an approximate reference front...")
         reference_front = merge_runs_to_non_dominated_front(all_runs)
-        print(f"Made a reference front from {len(all_runs)} runs")
+        logger.info(f"Made a reference front from {len(all_runs)} runs")
 
     if reference_front.size == 0:
-        print("Error: reference front is empty! Exiting...")
+        logger.error("Error: reference front is empty! Exiting...")
         return
 
     all_flipped_indices = set()
@@ -683,8 +685,8 @@ You can also click on graphs in legend to show/hide any specific one.
             name.strip() for name in kwargs.get("objective_names", "").split(",")
         ]
 
-    if all_runs:
-        metadata = all_runs[0].metadata
+    if filtered_runs_grouped:
+        metadata = list(filtered_runs_grouped.values())[0][0].metadata
         title_str = f"{metadata.problem_name.upper()}, {metadata.instance_name}, {metadata.run_time_seconds}s"
 
         if all_flipped_indices:

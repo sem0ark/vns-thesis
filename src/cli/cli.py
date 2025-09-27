@@ -121,7 +121,7 @@ def _filter_runs(
     if select_latest_only:
         runs_filtered = {
             name: [sorted(runs, key=lambda run: run.metadata.date)[-1]]
-            for name, runs in runs_grouped.items()
+            for name, runs in runs_filtered.items()
             if runs
         }
 

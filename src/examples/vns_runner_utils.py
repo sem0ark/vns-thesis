@@ -37,10 +37,7 @@ def run_vns_optimizer(
             )
             break
 
-        if improved:
-            logger.info("Iteration %d: Improved!", iteration)
-
         if iteration & logging_interval_mask == 0:
-            logger.info("Iteration %d", iteration)
+            logger.info("Iteration %d: Improved=%s", iteration, improved)
 
     return optimizer.acceptance_criterion.get_all_solutions()

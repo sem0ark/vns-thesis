@@ -1,5 +1,7 @@
 import logging
 
+import src.examples.moacbw.vns
+
 import src.examples.mokp.pymoo_builtin
 import src.examples.mokp.vns
 from src.cli.cli import CLI
@@ -31,5 +33,7 @@ if __name__ == "__main__":
 
     src.examples.mokp.pymoo_builtin.register_cli(cli)
     src.examples.mokp.vns.register_cli(cli)
+
+    src.examples.moacbw.vns.register_cli(cli)
 
     cli.run()
