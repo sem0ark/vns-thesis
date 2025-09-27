@@ -99,7 +99,7 @@ class MOACBWProblem(Problem[np.ndarray]):
                 np.min(np.abs(current_position - neighbor_positions))
             )
 
-        return min(antibandwidth_values) + sum(antibandwidth_values) / self.num_nodes
+        return min(antibandwidth_values) + sum(antibandwidth_values) / self.num_nodes**2
 
     def get_cutwidth(self, solution: MOACBWSolution) -> int:
         # We can calculate it using a more optimized version of:
@@ -152,7 +152,7 @@ class MOACBWProblem(Problem[np.ndarray]):
             # C(1) to C(N-1) are the relevant cuts
             cuts.append(current_cut)
 
-        return max(cuts) + sum(cuts) / self.num_nodes
+        return max(cuts) + sum(cuts) / self.num_nodes**2
 
     def evaluate(self, solution: MOACBWSolution) -> Tuple[float, float]:
         """

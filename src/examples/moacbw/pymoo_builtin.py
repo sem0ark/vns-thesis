@@ -44,8 +44,8 @@ def run_pymoo(
         metadata=Metadata(
             run_time_seconds=int(run_seconds),
             name=name,
-            version=3,
-            problem_name="mokp",
+            version=4,
+            problem_name="moacbw",
             instance_name=Path(instance_path).stem,
         ),
         solutions=solutions_data,

@@ -169,7 +169,7 @@ def prepare_optimizers(
     ]
     shake_functions = [
         ("shake_swap", shake_swap),
-        ("shake_swap_limited", shake_swap_limited),
+        # ("shake_swap_limited", shake_swap_limited),
     ]
 
     for (
@@ -180,7 +180,15 @@ def prepare_optimizers(
     ) in itertools.product(
         acceptance_criteria, local_search_functions, shake_functions, range(1, 8)
     ):
-        config_name = f"vns {acc_name} {search_name} k{k} {shake_name}"
+        common_name = "BVNS"
+        if "composite_" in search_name:
+            common_name = "GVNS"
+        elif "noop" in search_name:
+            common_name = "RVNS"
+        elif "skewed" in acc_name:
+            common_name = "SVNS"
+
+        config_name = f"{common_name} {acc_name} {search_name} k{k} {shake_name}"
 
         config = ElementwiseVNSOptimizer(
             problem=problem,
@@ -188,7 +196,7 @@ def prepare_optimizers(
             acceptance_criterion=make_acc_func(),
             shake_function=shake_func,
             name=config_name,
-            version=3,
+            version=4,
         )
 
         def runner_func(run_time, _config=config):
