@@ -298,7 +298,7 @@ class CLI:
                         f"Failed to match any runner with filters: {filter_groups}"
                     )
 
-                instance_paths = glob.glob(instances)
+                instance_paths = sorted(glob.glob(instances))
                 if not instance_paths:
                     click.echo(
                         f"Warning: No files found matching pattern '{instances}'. Exiting..."

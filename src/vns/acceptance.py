@@ -115,7 +115,7 @@ class AcceptBeamSkewed(AcceptBeam):
         self,
         alpha: list[float],
         distance_metric: Callable[[Solution, Solution], float],
-        buffer_size: int | None = None,
+        max_skewed_solutions = 100,
     ):
         """Init.
 
@@ -130,7 +130,7 @@ class AcceptBeamSkewed(AcceptBeam):
         self.alpha = alpha
         self.distance_metric = distance_metric
 
-        self.buffer: deque[Solution] = deque(maxlen=buffer_size)
+        self.skewed_buffer: deque[Solution] = deque(maxlen=max_skewed_solutions)
 
     def accept(self, candidate: Solution) -> bool:
         if len(candidate.objectives) != len(self.alpha):
@@ -159,11 +159,11 @@ class AcceptBeamSkewed(AcceptBeam):
             ):
                 return False
 
-        self.buffer.append(candidate)
+        self.skewed_buffer.append(candidate)
         return True
 
     def get_one_current_solution(self) -> Solution:
-        size = len(self.front) + len(self.buffer)
+        size = len(self.front) + len(self.skewed_buffer)
         if size == 0:
             raise ValueError("No solutions")
 
@@ -171,12 +171,11 @@ class AcceptBeamSkewed(AcceptBeam):
         if index < len(self.front):
             return self.front[index]
 
-        index -= len(self.front)
-        return self.buffer[index]
+        return self.skewed_buffer.popleft()
 
     def clear(self):
         super().clear()
-        self.buffer.clear()
+        self.skewed_buffer.clear()
 
 
 class AcceptBatch(AcceptanceCriterion):
@@ -272,12 +271,14 @@ class AcceptBatchSkewed(AcceptBatch):
         self,
         alpha: list[float],
         distance_metric: Callable[[Solution, Solution], float],
+        max_skewed_solutions = 100
     ):
         """Init.
 
         Args:
             alpha (list[float]): List of alpha weights per objective.
             distance_metric ((Solution, Solution) -> float): Gives the difference distance between two solutions.
+            max_skewed_solutions = 100 int: limit the number of skewed-accepted solution to store.
         """
         super().__init__()
         self.logger = logging.getLogger(self.__class__.__name__)
@@ -285,8 +286,8 @@ class AcceptBatchSkewed(AcceptBatch):
         self.alpha = alpha
         self.distance_metric = distance_metric
 
-        self.skewed_front: list[Solution] = []
-        self.upcoming_skewed_front: list[Solution] = []
+        self.skewed_buffer: deque[Solution] = deque(maxlen=max_skewed_solutions)
+        self.upcoming_skewed_buffer: deque[Solution] = deque(maxlen=max_skewed_solutions)
 
     def accept(self, candidate: Solution) -> bool:
         if len(candidate.objectives) != len(self.alpha):
@@ -314,11 +315,11 @@ class AcceptBatchSkewed(AcceptBatch):
             ):
                 return False
 
-        self.upcoming_skewed_front.append(candidate)
+        self.upcoming_skewed_buffer.append(candidate)
         return True
 
     def get_one_current_solution(self) -> Solution:
-        total_solutions = len(self.front) + len(self.skewed_front)
+        total_solutions = len(self.front) + len(self.skewed_buffer)
 
         if self.selection_counter >= total_solutions:
             self._swap_fronts()
@@ -326,21 +327,21 @@ class AcceptBatchSkewed(AcceptBatch):
 
         if self.selection_counter < len(self.front):
             current = self.front[self.selection_counter]
-        elif self.selection_counter - len(self.front) < len(self.skewed_front):
-            current = self.skewed_front[self.selection_counter - len(self.front)]
+            self.selection_counter += 1
+        elif len(self.skewed_buffer) > 0:
+            current = self.skewed_buffer.pop()
         else:
             raise RuntimeError("Unreachable")
 
-        self.selection_counter += 1
         return current
 
     def _swap_fronts(self):
         super()._swap_fronts()
 
-        self.skewed_front = self.upcoming_skewed_front
-        self.upcoming_skewed_front = []
+        self.skewed_buffer = self.upcoming_skewed_buffer
+        self.upcoming_skewed_buffer.clear()
 
     def clear(self):
         super().clear()
-        self.skewed_front = []
-        self.upcoming_skewed_front = []
+        self.skewed_buffer.clear()
+        self.upcoming_skewed_buffer.clear()
