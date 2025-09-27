@@ -1,7 +1,7 @@
 import itertools
 import logging
 import random
-from functools import lru_cache
+from functools import lru_cache, partial
 from pathlib import Path
 from typing import Any, Callable, Iterable
 
@@ -45,6 +45,20 @@ def swap_op(
             yield solution.new(new_data)
 
 
+def swap_limited_op(
+    solution: MOACBWSolution, config: VNSOptimizerAbstract
+) -> Iterable[MOACBWSolution]:
+    """Generates neighbors by swapping one selected item with one unselected item."""
+    solution_data = solution.data
+
+    index_order = shuffled(range(solution_data.size - 1))
+
+    for i in index_order:
+        new_data = solution_data.copy()
+        new_data[i], new_data[i + 1] = new_data[i + 1], new_data[i]
+        yield solution.new(new_data)
+
+
 def shake_swap(
     solution: MOACBWSolution, k: int, _config: VNSOptimizerAbstract
 ) -> MOACBWSolution:
@@ -56,7 +70,29 @@ def shake_swap(
 
     for _ in range(k):
         i = random.randint(0, n - 1)
-        j = random.randint(0, n - 1)
+        j = (n + random.randint(1, k) * (random.randint(0, 1) * 2 - 1)) % n
+
+        solution_data[i], solution_data[j] = solution_data[j], solution_data[i]
+
+    return solution.new(solution_data)
+
+
+def shake_swap_limited(
+    solution: MOACBWSolution, k: int, _config: VNSOptimizerAbstract
+) -> MOACBWSolution:
+    """
+    Randomly swaps two vertcies 'k' times limited to a range of 'k'.
+    """
+    solution_data = solution.data.copy()
+    n = solution_data.size
+
+    for _ in range(k):
+        i = random.randint(0, n - 1)
+        offset = k * (random.randint(0, 1) * 2 - 1)
+        j = i + offset
+
+        if not (0 <= j < n):
+            j += -2 * offset
 
         solution_data[i], solution_data[j] = solution_data[j], solution_data[i]
 
@@ -100,19 +136,18 @@ def prepare_optimizers(
     """
 
     optimizers: dict[str, Callable[[float], SavedRun]] = {}
-    alpha_weights = []
     problem: Any = None
 
     if instance_path:
         problem = MOACBWProblem.load(instance_path)
-        num_nodes = problem.num_nodes
-        alpha_weights = [num_nodes / 2, num_nodes / 2]
 
     acceptance_criteria = [
-        ("batch", AcceptBatch()),
+        ("batch", AcceptBatch),
         (
             "skewed",
-            AcceptBatchSkewed(alpha_weights, MOACBWProblem.calculate_solution_distance),
+            partial(
+                AcceptBatchSkewed, [5.0, 5.0], MOACBWProblem.calculate_solution_distance
+            ),
         ),
     ]
     local_search_functions = [
@@ -128,16 +163,17 @@ def prepare_optimizers(
                     ("FI", first_improvement),
                     ("QFI", first_improvement_quick),
                 ],
-                [("op_swap", swap_op)],
+                [("op_swap", swap_op), ("op_short_swap", swap_limited_op)],
             )
         ],
     ]
     shake_functions = [
         ("shake_swap", shake_swap),
+        ("shake_swap_limited", shake_swap_limited),
     ]
 
     for (
-        (acc_name, acc_func),
+        (acc_name, make_acc_func),
         (search_name, search_func),
         (shake_name, shake_func),
         k,
@@ -149,10 +185,10 @@ def prepare_optimizers(
         config = ElementwiseVNSOptimizer(
             problem=problem,
             search_functions=[search_func] * k,
-            acceptance_criterion=acc_func,
+            acceptance_criterion=make_acc_func(),
             shake_function=shake_func,
             name=config_name,
-            version=1,
+            version=3,
         )
 
         def runner_func(run_time, _config=config):

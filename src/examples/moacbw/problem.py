@@ -3,6 +3,7 @@ from typing import Any, Dict, Iterable, List, Tuple, cast
 
 import numpy as np
 import xxhash
+from pymoo.core.problem import ElementwiseProblem
 
 from src.vns.abstract import Problem, Solution
 
@@ -15,6 +16,7 @@ class _MOACBWSolution(Solution[np.ndarray]):
     data: A 1D numpy array representing the permutation of vertex indices (0 to N-1).
     The position in the array determines the position of a given node (0 to N-1).
     """
+
     def equals(self, other: Solution[np.ndarray]) -> bool:
         return hash(self) == hash(other)
 
@@ -75,12 +77,13 @@ class MOACBWProblem(Problem[np.ndarray]):
         return solutions
 
     def get_antibandwidth(self, solution: MOACBWSolution) -> int:
+        """
+        Antibandwidth = min_{v in V} { min_{(u,v) in E} { |pi(u) - pi(v)| } }
+        """
         sol: _MOACBWSolution = cast(Any, solution)
         positions = sol.node_positions
 
-        # Antibandwidth = min_{v in V} { min_{(u,v) in E} { |pi(u) - pi(v)| } }
-
-        antibandwidth = self.num_nodes
+        antibandwidth_values = []
 
         for current in range(self.num_nodes):
             neighbors = self.adj_list.get(current, [])
@@ -92,11 +95,11 @@ class MOACBWProblem(Problem[np.ndarray]):
 
             # AB(pi, u) = min_{v in N(u)} { |pi(u) - pi(v)| }
             neighbor_positions = positions[neighbors]
-            antibandwidth = min(
-                antibandwidth, np.min(np.abs(current_position - neighbor_positions))
+            antibandwidth_values.append(
+                np.min(np.abs(current_position - neighbor_positions))
             )
 
-        return antibandwidth
+        return min(antibandwidth_values) + sum(antibandwidth_values) / self.num_nodes
 
     def get_cutwidth(self, solution: MOACBWSolution) -> int:
         # We can calculate it using a more optimized version of:
@@ -114,7 +117,7 @@ class MOACBWProblem(Problem[np.ndarray]):
         positions = sol.node_positions
 
         current_cut = 0  # Represents the cut size C(k)
-        max_cut = 0
+        cuts = []
 
         # We iterate over the N-1 cuts. k is the position index (0 to N-2).
         # The vertex v = permutation[k] moves from the right set (R) to the left set (L),
@@ -147,9 +150,9 @@ class MOACBWProblem(Problem[np.ndarray]):
             current_cut += delta_cut
 
             # C(1) to C(N-1) are the relevant cuts
-            max_cut = max(max_cut, current_cut)
+            cuts.append(current_cut)
 
-        return max_cut
+        return max(cuts) + sum(cuts) / self.num_nodes
 
     def evaluate(self, solution: MOACBWSolution) -> Tuple[float, float]:
         """
@@ -203,3 +206,30 @@ class MOACBWProblem(Problem[np.ndarray]):
         graph = configuration["data"]["graph"]
 
         return MOACBWProblem(nodes, graph)
+
+
+class MOACBWProblemPymoo(ElementwiseProblem):
+    def __init__(self, problem: MOACBWProblem):
+        n_var = problem.num_nodes
+        n_obj = problem.num_objectives
+        n_constr = 0
+
+        super().__init__(
+            n_var=n_var,
+            n_obj=n_obj,
+            n_constr=n_constr,
+            xl=0.0,
+            xu=1.0,
+            vtype=float,
+        )
+        self.problem_instance = problem
+
+    def _evaluate(self, x: np.ndarray, out: dict, *args: Any, **kwargs: Any):
+        """
+        Evaluate a single solution vector 'x' (vector of N floats).
+        """
+        # np.argsort returns the indices that would sort the array.
+        # Basically ranking the results from 0 to N - 1
+        permutation_array = np.argsort(x).astype(int)
+        z1, z2 = _MOACBWSolution(permutation_array, self.problem_instance).objectives
+        out["F"] = np.array([z1, z2], dtype=float)
