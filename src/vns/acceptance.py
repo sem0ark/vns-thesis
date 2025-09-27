@@ -174,6 +174,10 @@ class AcceptBeamSkewed(AcceptBeam):
         index -= len(self.front)
         return self.buffer[index]
 
+    def clear(self):
+        super().clear()
+        self.buffer.clear()
+
 
 class AcceptBatch(AcceptanceCriterion):
     """
@@ -334,4 +338,9 @@ class AcceptBatchSkewed(AcceptBatch):
         super()._swap_fronts()
 
         self.skewed_front = self.upcoming_skewed_front
+        self.upcoming_skewed_front = []
+
+    def clear(self):
+        super().clear()
+        self.skewed_front = []
         self.upcoming_skewed_front = []

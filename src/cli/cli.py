@@ -69,10 +69,11 @@ def _load_runs(
             metadata = Metadata(**data["metadata"])
             config_name = metadata.name
 
-            solutions = [
-                SavedSolution(objectives=s["objectives"]) for s in data["solutions"]
-            ]
-            run = SavedRun(metadata=metadata, solutions=solutions)
+            solutions = {
+                tuple(s["objectives"]): SavedSolution(objectives=s["objectives"])
+                for s in data["solutions"]
+            }
+            run = SavedRun(metadata=metadata, solutions=list(solutions.values()))
 
             # Keep only the newest version for each config name
             if (
@@ -193,8 +194,14 @@ class CLI:
                 default="",
                 type=str,
             )
+            @click.option(
+                "--lines/--no-lines",
+                help="Connect solution front with points a line.",
+                is_flag=True,
+                default=True,
+            )
             @click.pass_context
-            def show_plot(ctx, headers):
+            def show_plot(ctx, headers, lines):
                 problem_name = ctx.obj["problem_name"]
                 instance_name = ctx.obj["instance_name"]
                 max_time_seconds = ctx.obj["max_time_seconds"]
@@ -210,6 +217,7 @@ class CLI:
                     all_runs,
                     runs_to_show,
                     objective_names=headers,
+                    lines=lines,
                 )
 
             @problem_show_group.command(name="metrics", help="Display raw metrics.")

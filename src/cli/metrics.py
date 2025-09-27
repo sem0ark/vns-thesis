@@ -400,7 +400,9 @@ def export_table(
                 "Error: Please install 'xlsxwriter' (or 'openpyxl') for Excel export."
             )
             df.to_csv(output_path.with_suffix(".csv"), index=False)
-            logger.warning(f"Falling back to CSV export: {output_path.with_suffix('.csv')}")
+            logger.warning(
+                f"Falling back to CSV export: {output_path.with_suffix('.csv')}"
+            )
     else:
         raise ValueError(
             f"Unsupported export format: {output_path.suffix}. Use .csv or .xlsx."
@@ -444,7 +446,9 @@ def prepare_coverage_table_data(
             row.append(f"{coverage:.4f}" if not np.isnan(coverage) else "N/A")
         table_data.append(row)
 
-    logger.info(f"(Hiding runs completely dominated by another run: {list(dominated_runs)})")
+    logger.info(
+        f"(Hiding runs completely dominated by another run: {list(dominated_runs)})"
+    )
 
     return headers, table_data
 
@@ -660,7 +664,7 @@ You can also click on graphs in legend to show/hide any specific one.
             merged_front[:, 0],
             merged_front[:, 1],
             marker="o",
-            linestyle="-",
+            linestyle="-" if kwargs.get("lines", None) else "",
             label=run_name,
             alpha=0.6,
         )
