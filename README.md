@@ -17,26 +17,41 @@ The `VNSOptimizer` class acts as the main orchestrator, tying all the components
 
 ### Local Search Operators
 
-These functions define the neighborhood structure for the local search phase, which aims to find a better solution in the vicinity of the current one. The search functions are wrappers around neighborhood operators, iterating through the neighborhood to find an improving solution.
+These functions define the neighborhood search phase, which aims to find a strictly better (dominating) solution in the vicinity of the current one. The search functions are wrappers around neighborhood operators, iterating through the neighborhood to find an improving solution. All comparison functions assume **minimization** for all objectives.
 
-- `noop`: A null operator for Randomized VNS (RVNS) variants where the local search step is skipped. It simply returns the `initial` solution without any changes.
-- `best_improvement(operator)`: Explores the entire neighborhood defined by a `NeighborhoodOperator` and returns the single best solution found. It's a greedy approach that guarantees the best local improvement at the cost of being computationally more expensive.
-- `first_improvement(operator)`: Explores the neighborhood and returns the very first solution that improves upon the current one. This can be significantly faster than `best_improvement` because it stops as soon as an improvement is found.
-- `first_improvement_quick(operator)`: Similar to `first_improvement` but it's an even more aggressive version. It only checks one level of neighborhood and returns the first improving neighbor. It's designed to be a very fast local search step.
-- `composite(search_functions)`: This function allows a **Variable Neighborhood Descent (VND)** strategy. It combines multiple local search functions and applies them sequentially. If a local search finds an improvement, the process restarts from the first search function in the list, effectively functioning as a classic VND.
+#### Single-Objective Local Searches
 
+- **`noop`**: A null operator for Randomized VNS (RVNS) variants where the local search step is skipped. It simply returns the `initial` solution without any changes.
+- **`best_improvement(operator)`**: Executes a greedy search. It explores the entire neighborhood defined by a `NeighborhoodOperator` and returns the single **best strictly better** solution found. This guarantees the best local improvement but is computationally expensive.
+- **`first_improvement(operator)`**: Implements a repeated descent. It explores the neighborhood and moves to the **first strictly better** near neighbor found. This process repeats until a neighborhood scan yields no improvement. This is typically faster than `best_improvement`.
+- **`first_improvement_quick(operator)`**: Executes a **single scan** of the neighborhood and returns the first strictly improving neighbor found. If no improvement is found in this single scan, the original solution is returned. This is designed for a very fast local search step.
+- **`composite(search_functions)`**: Implements the **Variable Neighborhood Descent (VND)** strategy. It applies a sequence of local search functions (derived from different neighborhood operators). If a local search finds a **strictly better** solution, the entire sequence restarts from the first function ($\text{VND level } k=0$).
+
+#### Multi-Objective VNS Components
+
+- **`vnd_i(...)`**: This is a core helper function that implements the single-objective **VND-i procedure** (Algorithm 5). It takes a list of neighborhood operators and a specific **objective index $i$** to focus on. It iteratively applies the operators to find the best neighbor with respect to **only objective $i$** and maintains a temporary set of efficient solutions found during this single-objective search.
+- **`mo_vnd(operators)`**: Implements the **Multi-Objective Variable Neighborhood Descent (MO-VND)** strategy (Algorithm 6). It acts as the outer search loop, managing the overall multi-objective process.
+    - It iterates over all objectives $i=1$ to $r$, applying the `vnd_i` procedure to non-exploited solutions currently in the global Pareto front.
+    - If any new non-dominated solution is accepted into the global archive (managed by the `AcceptBeam` criterion), the objective index $i$ is **reset to 0**, initiating a comprehensive search across all objectives again. This steering mechanism focuses the search on regions of the Pareto front where improvement was recently found.
 
 ### Acceptance Criteria
 
-The toolkit includes a set of acceptance criteria designed to manage the solution archive, particularly for multi-objective problems where a Pareto front of non-dominated solutions must be maintained. They determine whether a new candidate solution should be accepted into the archive and influence the overall search behavior.
+The toolkit includes a set of acceptance criteria designed to manage the solution archive, particularly for multi-objective problems where a Pareto front of non-dominated solutions must be maintained. They determine whether a new candidate solution should be accepted into the archive and influence the overall search behavior. All provided implementations assume **minimization** for all objectives.
 
-- `AcceptBatchBigger` & `AcceptBatchSmaller`: These criteria manage an archive of non-dominated solutions, representing the current Pareto front. They are used in the classic VNS framework where the algorithm iterates through each solution in the front before moving to a new one. The archive is updated by combining accepted solutions with the previous non-dominated solutions. `Bigger` is for maximization problems and `Smaller` for minimization.
+- **`AcceptBatch`**: This criterion manages the archive (Pareto front) in a **batch-processing style**. The algorithm must **iterate through every solution** in the current front before processing the next one. Accepted solutions are placed into an `upcoming_front`. Once the iteration is complete, the current non-dominated solutions are merged with the accepted ones to form the new front.
 
-- `AcceptBeamBigger` & `AcceptBeamSmaller`: These criteria introduce a **beam search-like behavior**. Instead of a strict iteration through the entire front, the algorithm selects a random solution from the archive (buffer). When a new solution is accepted, the archive is updated immediately. This provides a more dynamic, less structured search, similar to a beam search, where the focus is on rapidly improving the quality of the current set of solutions. `Bigger` is for maximization and `Smaller` for minimization.
+- **`AcceptBeam`**: This criterion introduces a **dynamic, beam search-like behavior**. Instead of strict iteration, the algorithm selects a **random solution** from the archive to continue the search. When a new non-dominated solution is found, the archive is **updated immediately** by removing dominated solutions. This provides a more dynamic, less structured search, prioritizing rapid improvement of the current set of solutions.
 
-- `AcceptBatchSkewedBigger` & `AcceptBatchSkewedSmaller`: Implement a **Skewed Acceptance** for Skewed VNS (SVNS). On top of checking for strict Pareto dominance, these criteria also maintain a "skewed front" of solutions that are not strictly non-dominated but are sufficiently different from existing ones. If a new solution is rejected by the main front, but is different enough, it's added to a buffer. The algorithm can then randomly select from this buffer, encouraging exploration of different regions of the search space.
+- **`AcceptBatchSkewed`**: Implements a **Skewed Acceptance** criterion within the batch-processing framework.
+    - It maintains a main archive (`front`) and a separate **skewed front** (`skewed_front`).
+    - If a new candidate is rejected by the main front, it is then compared against the front using a **skewed objective vector** (the candidate's objectives are skewed by a distance-dependent term). If the skewed candidate is found to be non-dominated, the candidate is added to the `upcoming_skewed_front`.
+    - Solutions for the next iteration are selected first from the main front, then from the skewed front. Both fronts are fully iterated and rebuilt in a batch process when exhausted.
 
-- `AcceptBeamSkewedBigger` & `AcceptBeamSkewedSmaller`: These criteria combine the concepts of **beam search and skewed acceptance**. They behave like the `AcceptBeam` variants, but also maintain a buffer of skewed solutions. This allows for both rapid, random exploration from the main non-dominated front and strategic dives into promising but previously rejected regions of the solution space.
+- **`AcceptBeamSkewed`**: These criteria combine the concepts of **beam search and skewed acceptance**.
+    - It maintains the main non-dominated archive (`front`) and a **buffer** of skewed-accepted solutions (`buffer`).
+    - If a new candidate is rejected by the main front, it is compared against the front using a **skewed objective vector** derived from solutions in the *main front*. If this skewed comparison is favorable (not strictly better than the skewed solution's original objective), the candidate is added to the `buffer`.
+    - The next solution for the search is chosen **randomly** from the union of the main front and the skewed buffer, encouraging exploration of promising but non-Pareto regions of the solution space.
+
 
 ## Getting Started
 
