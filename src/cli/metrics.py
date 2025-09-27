@@ -36,13 +36,13 @@ class Metrics:
 def flip_objectives_to_positive(front: np.ndarray) -> Tuple[np.ndarray, List[int]]:
     """
     Flips the sign of any column in a NumPy array if all values in that column are negative.
-    This standardization step is often required for metrics like Hypervolume and Epsilon
-    which require positive objective values.
+    This is useful for intuitively plotting objective results to not show negated values,
+    because these objectives were to be maximized.
 
     Returns the modified array and a list of indices of the flipped columns.
     """
     flipped_indices = []
-    # Make a copy to avoid modifying the original array
+    # Avoid modifying the original array
     front_copy = front.copy()
     for i in range(front_copy.shape[1]):
         if np.all(front_copy[:, i] < 0):
@@ -51,9 +51,7 @@ def flip_objectives_to_positive(front: np.ndarray) -> Tuple[np.ndarray, List[int
     return front_copy, flipped_indices
 
 
-def merge_runs_to_non_dominated_front(
-    runs: list[SavedRun], predefined_front: list | None = None
-) -> np.ndarray:
+def merge_runs_to_non_dominated_front(runs: list[SavedRun]) -> np.ndarray:
     """
     Calculates the reference front by combining and sorting all non-dominated
     solutions from all runs. It can be overridden by a predefined front.
@@ -92,6 +90,7 @@ def merge_runs_to_non_dominated_front(
 def calculate_multiplicative_epsilon(A: np.ndarray, R: np.ndarray) -> float:
     """
     Calculates the multiplicative epsilon indicator.
+    Reference: https://davidwalz.github.io/posts/2020/multiobjective-metrics/#Epsilon-indicator
 
     This indicator is for minimization, where a value closer to 1 is better,
     and a value of 1 means A is covered by R.
@@ -130,8 +129,9 @@ def _generate_uniform_weights(num_objectives: int, num_weights: int) -> np.ndarr
             weights[i, 1] = 1.0 - weights[i, 0]
         return weights
     else:
-        # A simple approximation for more than 2 objectives
+        # Use approximation for more than 2 objectives
         weights = np.random.rand(num_weights, num_objectives)
+        # Scale to [0, 1]
         return weights / np.sum(weights, axis=1, keepdims=True)
 
 
@@ -186,7 +186,7 @@ def calculate_coverage(A: np.ndarray, B: np.ndarray) -> float:
     Calculates the coverage metric C(A, B), the ratio of solutions in B
     that are dominated by at least one solution in A.
 
-    C(A, B) = |{b inn B | ∃ a inn A, a dominates b}| / |B|
+    C(A, B) = |{b in B | ∃ a in A, a dominates b}| / |B|
 
     Args:
         A: The approximation front A (a NumPy array).
@@ -241,8 +241,8 @@ def _get_hypervolume_reference_point(fronts: list[np.ndarray]) -> np.ndarray:
 
 def calculate_metrics(
     instance_path: Path,
-    runs_grouped: dict[str, list[SavedRun]],
-    max_time_seconds: float,
+    all_runs_grouped: dict[str, list[SavedRun]],
+    filtered_runs_grouped: dict[str, list[SavedRun]],
 ) -> dict[str, Metrics]:
     """
     Calculates performance metrics for each run, and then averages them across multiple runs
@@ -259,7 +259,7 @@ def calculate_metrics(
 
     problem_data = load_instance_data_json(instance_path)
 
-    all_runs = [run for runs in runs_grouped.values() for run in runs]
+    all_runs = [run for runs in all_runs_grouped.values() for run in runs]
 
     predefined_front = problem_data.get("reference_front")
     if predefined_front:
@@ -290,12 +290,9 @@ def calculate_metrics(
 
     metrics_results = {}
 
-    for run_name, runs in runs_grouped.items():
+    for run_name, runs in filtered_runs_grouped.items():
         run_metrics_list = []
         for run in runs:
-            if abs(run.metadata.run_time_seconds - max_time_seconds) > 1e-3:
-                continue
-
             front = np.array([sol.objectives for sol in run.solutions])
 
             if front.size == 0:
@@ -312,20 +309,20 @@ def calculate_metrics(
                 )
                 continue
 
-            # Relative missing hypervolume compared to reference front: For minimization, smaller is better.
+            # Relative missing hypervolume compared to reference front. For minimization, smaller is better.
             hypervolume_indicator = HV(ref_point=hypervolume_reference_point)
             relative_hypervolume = (
                 reference_front_hypervolume
                 - (hypervolume_indicator.do(front) or np.nan)
             ) / reference_front_hypervolume
 
-            # Multiplicative Epsilon: For minimization, smaller is better.
+            # Multiplicative Epsilon. For minimization, smaller is better.
             epsilon = calculate_multiplicative_epsilon(front, reference_front)
 
-            # R2 Unary Indicator: For minimization, smaller is better.
+            # R2 Unary Indicator. For minimization, smaller is better.
             r_metric = calculate_r2_metric(front, r2_ideal_point, r2_weights)
 
-            # Inverted Generational Distance (IGD): For minimization, smaller is better.
+            # Inverted Generational Distance (IGD). For minimization, smaller is better.
             igd_indicator = IGD(reference_front)
             inverted_generational_distance = igd_indicator.do(front)
 
@@ -340,7 +337,6 @@ def calculate_metrics(
                 )
             )
 
-        # Average the metrics for each run group
         if run_metrics_list:
             avg_epsilon = np.nanmean([m.epsilon for m in run_metrics_list])
             avg_hypervolume = np.nanmean([m.hypervolume for m in run_metrics_list])
@@ -393,7 +389,6 @@ def export_table(
         df.to_csv(output_path, index=False)
         print(f"Metrics successfully exported to CSV: {output_path}")
     elif output_path.suffix.lower() in [".xlsx", ".xls"]:
-        # Using ExcelWriter for better control and handling (e.g., sheet name)
         try:
             with pd.ExcelWriter(output_path, engine="xlsxwriter") as writer:
                 df.to_excel(writer, sheet_name=sheet_name, index=False)
@@ -452,28 +447,16 @@ def prepare_coverage_table_data(
     return headers, table_data
 
 
-def display_coverage_table(coverage_matrix: Dict[str, Dict[str, float]]):
-    """
-    Prints the coverage metric C(A, B) table to the console.
-    """
-    headers, table_data = prepare_coverage_table_data(coverage_matrix)
-
-    print("\n--- Coverage (C(A, B)) Matrix ---")
-    print(tabulate.tabulate(table_data, headers=headers, tablefmt="fancy_grid"))
-
-    return headers, table_data  # Return for potential external use
-
-
 def prepare_metrics_table_data(
     instance_path: Path,
-    runs_grouped: dict[str, list[SavedRun]],
-    max_time_seconds: float,
+    all_runs_grouped: dict[str, list[SavedRun]],
+    filtered_runs_grouped: dict[str, list[SavedRun]],
 ) -> Tuple[Dict[str, Any], Tuple[List[str], List[List[Any]]]]:
     """
     Calculates metrics and prepares the unary metrics table data.
     Returns (metrics, (headers, table_data)).
     """
-    metrics = calculate_metrics(instance_path, runs_grouped, max_time_seconds)
+    metrics = calculate_metrics(instance_path, all_runs_grouped, filtered_runs_grouped)
     # Sort the metrics. Lower values are better for all of them.
     sorted_metrics = sorted(
         metrics.items(),
@@ -518,8 +501,8 @@ def prepare_metrics_table_data(
 
 def display_metrics(
     instance_path: Path,
-    runs_grouped: dict[str, list[SavedRun]],
-    max_time_seconds: float,
+    all_runs_grouped: dict[str, list[SavedRun]],
+    filtered_runs_grouped: dict[str, list[SavedRun]],
     output_file: Path | None = None,
 ):
     """
@@ -527,8 +510,8 @@ def display_metrics(
     with an option to export them.
     """
     # 1. Prepare Unary Metrics Table
-    metrics, (unary_headers, unary_table_data) = prepare_metrics_table_data(
-        instance_path, runs_grouped, max_time_seconds
+    _, (unary_headers, unary_table_data) = prepare_metrics_table_data(
+        instance_path, all_runs_grouped, filtered_runs_grouped
     )
 
     print("\n--- Unary Metrics Table ---")
@@ -541,14 +524,8 @@ def display_metrics(
     # 2. Prepare Coverage Metrics Table
     coverage_metrics = calculate_coverage_metrics(
         {
-            name: merge_runs_to_non_dominated_front(
-                [
-                    run
-                    for run in runs
-                    if abs(run.metadata.run_time_seconds - max_time_seconds) < 1e-3
-                ]
-            )
-            for name, runs in runs_grouped.items()
+            name: merge_runs_to_non_dominated_front(runs)
+            for name, runs in filtered_runs_grouped.items()
         }
     )
     coverage_headers, coverage_table_data = prepare_coverage_table_data(
@@ -580,7 +557,7 @@ def display_metrics(
             ],
             headers=unary_headers,
             output_path=unary_export_path,
-            sheet_name="UnaryMetrics",
+            sheet_name="Unary Metrics",
         )
 
         # Export Coverage Metrics
@@ -596,14 +573,14 @@ def display_metrics(
             ],
             headers=coverage_headers,
             output_path=coverage_export_path,
-            sheet_name="CoverageMatrix",
+            sheet_name="Coverage Matrix",
         )
 
 
 def plot_runs(
     instance_path: Path,
-    runs_grouped: Dict[str, List[SavedRun]],
-    max_time_seconds: float,
+    all_runs_grouped: Dict[str, List[SavedRun]],
+    filtered_runs_grouped: dict[str, list[SavedRun]],
 ) -> None:
     print("""Plotting the results:
 Controls:
@@ -614,7 +591,7 @@ You can also click on graphs in legend to show/hide any specific one.
 
     problem_data = load_instance_data_json(instance_path)
 
-    all_runs = [run for runs in runs_grouped.values() for run in runs]
+    all_runs = [run for runs in all_runs_grouped.values() for run in runs]
     predefined_front = problem_data.get("reference_front")
 
     if predefined_front:
@@ -622,34 +599,21 @@ You can also click on graphs in legend to show/hide any specific one.
         predefined_front_np, _ = flip_objectives_to_positive(np.array(predefined_front))
         reference_front = -predefined_front_np
     else:
+        print("Merging all runs to get an approximate reference front...")
         reference_front = merge_runs_to_non_dominated_front(all_runs)
-
-    runs_grouped = {
-        # take latest run with correct max run time.
-        name: sorted(
-            [
-                run for run in runs
-                if abs(run.metadata.run_time_seconds - max_time_seconds) < 1e-3
-            ],
-            key=lambda run: run.metadata.date,
-        )
-        for name, runs in runs_grouped.items()
-    }
+        print(f"Made a reference front from {len(all_runs)} runs")
 
     if reference_front.size == 0:
+        print("Error: reference front is empty! Exiting...")
         return
 
     all_flipped_indices = set()
-    reference_front, flipped_indices = flip_objectives_to_positive(reference_front)
+    reference_front_flipped, flipped_indices = flip_objectives_to_positive(
+        reference_front
+    )
     all_flipped_indices.update(flipped_indices)
 
-    if reference_front.size == 0:
-        logging.error(
-            "Failed to create a reference front from the provided runs or file."
-        )
-        return
-
-    if reference_front.shape[1] != 2:
+    if reference_front_flipped.shape[1] != 2:
         logging.error(
             "Plotting is only supported for problems with exactly 2 objectives."
         )
@@ -658,9 +622,12 @@ You can also click on graphs in legend to show/hide any specific one.
     # Calculate hypervolume for each run and prepare data for plotting
     plot_data = []
 
-    hypervolume_indicator = HV(ref_point=(0, 0))
+    # Make a reference point, that it obviously worse then any possible solution
+    hypervolume_indicator = HV(
+        ref_point=_get_hypervolume_reference_point([reference_front]) * 2
+    )
 
-    for run_name, runs in runs_grouped.items():
+    for run_name, runs in filtered_runs_grouped.items():
         if not runs:
             continue
 
@@ -700,8 +667,8 @@ You can also click on graphs in legend to show/hide any specific one.
 
     # Plot the reference front
     (ref_line,) = ax.plot(
-        reference_front[:, 0],
-        reference_front[:, 1],
+        reference_front_flipped[:, 0],
+        reference_front_flipped[:, 1],
         linestyle="-",
         label="Reference Front",
         color="red",
@@ -716,7 +683,9 @@ You can also click on graphs in legend to show/hide any specific one.
         title_str = f"{metadata.problem_name.upper()}, {metadata.instance_name}, {metadata.run_time_seconds}s"
 
         if all_flipped_indices:
-            flipped_obj_labels = sorted([f"Z{i + 1}" for i in all_flipped_indices])
+            flipped_obj_labels = [
+                f"Z{i + 1}" for i in sorted(list(all_flipped_indices))
+            ]
             note = f" (Note: {', '.join(flipped_obj_labels)} were negated)"
             title_str += note
 

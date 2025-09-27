@@ -1,8 +1,12 @@
 import logging
 from typing import Callable, Iterable, TypeVar
 
-from src.vns.abstract import (AcceptanceCriterion, Problem, Solution,
-                              VNSOptimizerAbstract)
+from src.vns.abstract import (
+    AcceptanceCriterion,
+    Problem,
+    Solution,
+    VNSOptimizerAbstract,
+)
 
 T = TypeVar("T")
 
@@ -36,7 +40,6 @@ class ElementwiseVNSOptimizer[T](VNSOptimizerAbstract[T]):
             self.acceptance_criterion.accept(sol)
 
         while True:
-            improved = False
             current_solution = self.acceptance_criterion.get_one_current_solution()
             k = 0
 
@@ -44,14 +47,12 @@ class ElementwiseVNSOptimizer[T](VNSOptimizerAbstract[T]):
                 shaken_solution = self.shake_function(current_solution, k + 1, self)
                 accepted = False
                 for intensified_solution in self.search_functions[k](shaken_solution, self):
+                    if not intensified_solution:
+                        yield False
+                        continue
+
                     local_accepted = self.acceptance_criterion.accept(intensified_solution)
                     accepted = accepted or local_accepted
-                    yield local_accepted
 
-                if accepted:
-                    improved = True
-                    k = 0
-                else:
-                    k += 1
-
-            yield improved
+                k = 0 if accepted else k + 1
+                yield accepted

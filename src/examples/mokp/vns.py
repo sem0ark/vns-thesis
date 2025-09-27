@@ -8,11 +8,17 @@ from typing import Any, Callable, Iterable
 import numpy as np
 
 from src.cli.cli import CLI, Metadata, SavedRun, SavedSolution
-from src.examples.mokp.mokp_problem import MOKPProblem, MOKPSolution
+from src.examples.mokp.problem import MOKPProblem, MOKPSolution
 from src.examples.vns_runner_utils import run_vns_optimizer
 from src.vns.abstract import VNSOptimizerAbstract
 from src.vns.acceptance import AcceptBatch, AcceptBatchSkewed
-from src.vns.local_search import best_improvement, composite, first_improvement, first_improvement_quick, noop
+from src.vns.local_search import (
+    best_improvement,
+    composite,
+    first_improvement,
+    first_improvement_quick,
+    noop,
+)
 from src.vns.optimizer import ElementwiseVNSOptimizer
 
 logger = logging.getLogger("mokp-solver")
@@ -139,6 +145,7 @@ def prepare_optimizers(
 
     optimizers: dict[str, Callable[[float], SavedRun]] = {}
     profit_sums = []
+    num_objectives = 1
     problem: Any = None
 
     if instance_path:
@@ -147,6 +154,7 @@ def prepare_optimizers(
         profit_sums = np.sum(problem.profits, axis=1)
         total = np.sum(profit_sums)
         profit_sums = (profit_sums / total * profit_sums.size).tolist()
+        num_objectives = problem.num_objectives
 
     acceptance_criteria = [
         ("batch", AcceptBatch()),
@@ -163,13 +171,39 @@ def prepare_optimizers(
                 (search_name, search_func_factory),
                 (op_name, op_func),
             ) in itertools.product(
-                [("BI", best_improvement), ("FI", first_improvement), ("QFI", first_improvement_quick)],
+                [
+                    ("BI", best_improvement),
+                    ("FI", first_improvement),
+                    ("QFI", first_improvement_quick),
+                ],
                 [("op_ar", add_remove_op), ("op_swap", swap_op)],
             )
         ],
         *[
-            (f"composite_{search_name}_ar_swap", composite([search_func_factory(add_remove_op), search_func_factory(swap_op)]))
-            for (search_name, search_func_factory) in [("BI", best_improvement), ("FI", first_improvement), ("QFI", first_improvement_quick)]
+            (
+                f"composite_MOVND_{search_name}_ar_swap",
+                composite(
+                    [
+                        composite(
+                            [
+                                search_func_factory(add_remove_op, obj_i)
+                                for obj_i in range(num_objectives)
+                            ]
+                        ),
+                        composite(
+                            [
+                                search_func_factory(swap_op, obj_i)
+                                for obj_i in range(num_objectives)
+                            ]
+                        ),
+                    ]
+                ),
+            )
+            for (search_name, search_func_factory) in [
+                ("BI", best_improvement),
+                ("FI", first_improvement),
+                ("QFI", first_improvement_quick),
+            ]
         ],
     ]
     shake_functions = [
@@ -193,7 +227,7 @@ def prepare_optimizers(
             acceptance_criterion=acc_func,
             shake_function=shake_func,
             name=config_name,
-            version=7,
+            version=9,
         )
 
         def runner_func(run_time, _config=config):

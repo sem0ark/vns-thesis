@@ -1,6 +1,5 @@
 runs
-
-
+*.gz
 
 # General
 .DS_Store

@@ -10,10 +10,12 @@ from pymoo.termination.max_time import TimeBasedTermination
 from pymoo.util.nds.non_dominated_sorting import NonDominatedSorting
 
 from src.cli.cli import Metadata, SavedRun, SavedSolution
-from src.examples.mokp.mokp_problem import MOKPProblem, MOKPPymoo
+from src.examples.mokp.problem import MOKPProblem, MOKPPymoo
 
 
-def run_pymoo(instance_path: str, run_seconds: float, name: str, algorithm: NSGA2 | SPEA2):
+def run_pymoo(
+    instance_path: str, run_seconds: float, name: str, algorithm: NSGA2 | SPEA2
+):
     problem_instance = MOKPProblem.load(instance_path)
     problem = MOKPPymoo(problem_instance)
 
@@ -68,10 +70,16 @@ def prepare_optimizers():
         population,
     ) in product(algorithms, population_sizes):
         name = f"{algorithm_name} pop_{population}"
-        yield name, make_runner(name, algorithm(
-            eliminate_duplicates=True,
-            pop_size=population,
-        ))
+        yield (
+            name,
+            make_runner(
+                name,
+                algorithm(
+                    eliminate_duplicates=True,
+                    pop_size=population,
+                ),
+            ),
+        )
 
 
 def register_cli(cli: Any) -> None:

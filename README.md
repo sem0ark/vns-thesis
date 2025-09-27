@@ -27,13 +27,6 @@ These functions define the neighborhood search phase, which aims to find a stric
 - **`first_improvement_quick(operator)`**: Executes a **single scan** of the neighborhood and returns the first strictly improving neighbor found. If no improvement is found in this single scan, the original solution is returned. This is designed for a very fast local search step.
 - **`composite(search_functions)`**: Implements the **Variable Neighborhood Descent (VND)** strategy. It applies a sequence of local search functions (derived from different neighborhood operators). If a local search finds a **strictly better** solution, the entire sequence restarts from the first function ($\text{VND level } k=0$).
 
-#### Multi-Objective VNS Components
-
-- **`vnd_i(...)`**: This is a core helper function that implements the single-objective **VND-i procedure** (Algorithm 5). It takes a list of neighborhood operators and a specific **objective index $i$** to focus on. It iteratively applies the operators to find the best neighbor with respect to **only objective $i$** and maintains a temporary set of efficient solutions found during this single-objective search.
-- **`mo_vnd(operators)`**: Implements the **Multi-Objective Variable Neighborhood Descent (MO-VND)** strategy (Algorithm 6). It acts as the outer search loop, managing the overall multi-objective process.
-    - It iterates over all objectives $i=1$ to $r$, applying the `vnd_i` procedure to non-exploited solutions currently in the global Pareto front.
-    - If any new non-dominated solution is accepted into the global archive (managed by the `AcceptBeam` criterion), the objective index $i$ is **reset to 0**, initiating a comprehensive search across all objectives again. This steering mechanism focuses the search on regions of the Pareto front where improvement was recently found.
-
 ### Acceptance Criteria
 
 The toolkit includes a set of acceptance criteria designed to manage the solution archive, particularly for multi-objective problems where a Pareto front of non-dominated solutions must be maintained. They determine whether a new candidate solution should be accepted into the archive and influence the overall search behavior. All provided implementations assume **minimization** for all objectives.
@@ -70,11 +63,11 @@ The main command-line interface (CLI) is accessed via `python ./cli.py` and is d
 
 #### `show`
 
-The `show` command is used to analyze results from previously executed optimization runs. It requires a **problem name** (`-p`), an **instance file** (`-i`), and a **maximum execution time** (`-t`) to filter the results.
+The `show` command is used to analyze results from previously executed optimization runs. It requires an **instance file** (`-i`), and a **maximum execution time** (`-t`) to filter the results.
 
 - `show plot`: Generates an interactive plot showing the Pareto fronts of the filtered runs, including a reference front for comparison.
     ```bash
-    uv run python ./cli.py show -i ./data/mokp/2KP50-11.json -t 10s -p mokp plot
+    uv run python ./cli.py show mokp -i ./data/mokp/2KP50-11.json -t 10s plot
     ```
 
 - `show metrics`: Displays quantitative performance metrics for the filtered runs. This command now generates **two tables**:
@@ -82,7 +75,7 @@ The `show` command is used to analyze results from previously executed optimizat
     2.  A **1-to-1 Coverage Matrix** $C(A, B)$ comparing the dominance between all run pairs. Runs that are **completely dominated** by another run are **hidden** from the matrix.
 
     ```bash
-    uv run python ./cli.py show -i ./data/mokp/2KP50-11.json -t 10s -p mokp metrics
+    uv run python ./cli.py show mokp -i ./data/mokp/2KP50-11.json -t 10s mokp metrics
     ```
 
     The `show metrics` command supports exporting the results:
@@ -90,7 +83,7 @@ The `show` command is used to analyze results from previously executed optimizat
 
     ```bash
     # Example: Exporting metrics to an Excel file
-    uv run python ./cli.py show -i ... -t 10s -p mokp metrics -o ./results/run_summary.xlsx
+    uv run python ./cli.py show mokp -i ... -t 10s metrics -o ./results/run_summary.xlsx
     ```
 
 Both `show` sub-commands can be further refined using the **`-f`** or **`--filter-configs`** option. This option accepts a comma-separated list of keywords to match specific algorithm configurations. Multiple groups of filters can be combined using the keyword **`or`**.

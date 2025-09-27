@@ -3,9 +3,14 @@ from unittest.mock import Mock
 import pytest
 
 from src.vns.abstract import MOKPSolution
-from src.vns.acceptance import (TakeBigger, TakeBiggerSkewed, TakeSmaller,
-                                TakeSmallerSkewed, dominates_maximize,
-                                dominates_minimize)
+from src.vns.acceptance import (
+    TakeBigger,
+    TakeBiggerSkewed,
+    TakeSmaller,
+    TakeSmallerSkewed,
+    dominates_maximize,
+    dominates_minimize,
+)
 
 
 class TestDominatesMinimize:

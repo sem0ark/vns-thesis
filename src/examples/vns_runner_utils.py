@@ -22,6 +22,7 @@ def run_vns_optimizer(
     """
     logger = logging.getLogger(optimizer.name)
     start_time = time.time()
+    logging_interval_mask = (1 << 10) - 1
 
     for iteration, improved in enumerate(optimizer.optimize(), 1):
         elapsed_time = time.time() - start_time
@@ -38,5 +39,8 @@ def run_vns_optimizer(
 
         if improved:
             logger.info("Iteration %d: Improved!", iteration)
+
+        if iteration & logging_interval_mask == 0:
+            logger.info("Iteration %d", iteration)
 
     return optimizer.acceptance_criterion.get_all_solutions()

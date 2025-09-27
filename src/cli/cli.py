@@ -1,6 +1,7 @@
+import glob
 import json
 import re
-import glob
+from collections import defaultdict
 from dataclasses import asdict
 from pathlib import Path
 from typing import Callable, Self
@@ -50,23 +51,16 @@ class NpEncoder(json.JSONEncoder):
         return super(NpEncoder, self).default(o)
 
 
-def _load_and_filter_runs(
+def _load_runs(
     problem_name: str,
     instance_name: str,
-    filter_configs: str = "",
 ) -> dict[str, list[SavedRun]]:
     """
-    Loads and filters saved run files based on criteria, returning the latest
-    version of each unique configuration.
+    Loads saved run files for a given instance, returning the latest version of each unique configuration.
     """
     all_files = BASE.glob(f"{problem_name}_{instance_name}_*.json")
 
     runs_by_name = {}
-    filter_groups = [
-        [f.strip() for f in filter_group.strip().lower().split(",")]
-        for filter_group in filter_configs.split(" or ")
-    ]
-
     for file_path in all_files:
         try:
             with open(file_path, "r") as f:
@@ -74,12 +68,6 @@ def _load_and_filter_runs(
 
             metadata = Metadata(**data["metadata"])
             config_name = metadata.name
-
-            if filter_groups and not any(
-                all(filter_name in config_name.lower() for filter_name in filter_group)
-                for filter_group in filter_groups
-            ):
-                continue
 
             solutions = [
                 SavedSolution(objectives=s["objectives"]) for s in data["solutions"]
@@ -100,6 +88,44 @@ def _load_and_filter_runs(
             continue
 
     return runs_by_name
+
+
+def _filter_runs(
+    runs_grouped: dict[str, list[SavedRun]],
+    max_time_seconds: float,
+    filter_configs: str = "",
+    select_latest_only: bool = False,
+) -> dict[str, list[SavedRun]]:
+    """
+    Filters saved run files based on name, run time, creation date.
+    """
+    runs_filtered = defaultdict(list)
+    filter_groups = [
+        [f.strip() for f in filter_group.strip().lower().split(",")]
+        for filter_group in filter_configs.split(" or ")
+    ]
+
+    for config_name, runs in runs_grouped.items():
+        if filter_groups and not any(
+            all(filter_name in config_name.lower() for filter_name in filter_group)
+            for filter_group in filter_groups
+        ):
+            continue
+
+        for run in runs:
+            if abs(run.metadata.run_time_seconds - max_time_seconds) > 1e-3:
+                continue
+
+            runs_filtered[config_name].append(run)
+
+    if select_latest_only:
+        runs_filtered = {
+            name: [sorted(runs, key=lambda run: run.metadata.date)[-1]]
+            for name, runs in runs_grouped.items()
+            if runs
+        }
+
+    return runs_filtered
 
 
 class CLI:
@@ -123,9 +149,10 @@ class CLI:
 
         def create_problem_show_command(problem_name):
             """Generates a command group for a specific problem under 'show'."""
+
             @show_command.group(
                 name=problem_name,
-                help=f"Show metrics for the '{problem_name}' problem."
+                help=f"Show metrics for the '{problem_name}' problem.",
             )
             @click.option(
                 "-i",
@@ -151,7 +178,7 @@ class CLI:
             def problem_show_group(ctx, instance, max_time, filter_configs):
                 # Context object is created and populated here
                 ctx.ensure_object(dict)
-                ctx.obj["problem_name"] = problem_name # Passed from the outer function
+                ctx.obj["problem_name"] = problem_name
                 ctx.obj["instance_path"] = Path(instance)
                 ctx.obj["instance_name"] = Path(instance).stem
 
@@ -168,13 +195,11 @@ class CLI:
                 filter_configs = ctx.obj["filter_configs"]
 
                 click.echo("Plotting metrics...")
-                runs = _load_and_filter_runs(
-                    problem_name,
-                    instance_name,
-                    filter_configs,
+                all_runs = _load_runs(problem_name, instance_name)
+                runs_to_show = _filter_runs(
+                    all_runs, max_time_seconds, filter_configs, select_latest_only=True
                 )
-                print("ctx.obj['instance_path'], runs, max_time_seconds", ctx.obj["instance_path"], max_time_seconds)
-                plot_runs(ctx.obj["instance_path"], runs, max_time_seconds)
+                plot_runs(ctx.obj["instance_path"], all_runs, runs_to_show)
 
             @problem_show_group.command(name="metrics", help="Display raw metrics.")
             @click.option(
@@ -193,11 +218,15 @@ class CLI:
 
                 click.echo("Displaying metrics...")
 
-                runs = _load_and_filter_runs(problem_name, instance_name, filter_configs)
-                display_metrics(ctx.obj["instance_path"], runs, max_time_seconds, output_file)
+                all_runs = _load_runs(problem_name, instance_name)
+                runs_to_show = _filter_runs(all_runs, max_time_seconds, filter_configs)
+
+                display_metrics(
+                    ctx.obj["instance_path"], all_runs, runs_to_show, output_file
+                )
 
             return problem_show_group
-        
+
         @click.group(help="Run an optimization algorithm for a given problem.")
         def run_command():
             pass
@@ -226,7 +255,7 @@ class CLI:
                 help="Path pattern (with wildcards) to problem instance files.",
             )
             def problem_runner(max_time: str, filter_configs: str, instances: str):
-                run_time_seconds = parse_time_string(max_time) 
+                run_time_seconds = parse_time_string(max_time)
 
                 filter_groups = [
                     [f.strip() for f in filter_group.strip().lower().split(",")]
@@ -252,11 +281,15 @@ class CLI:
 
                 instance_paths = glob.glob(instances)
                 if not instance_paths:
-                    click.echo(f"Warning: No files found matching pattern '{instances}'. Exiting...")
+                    click.echo(
+                        f"Warning: No files found matching pattern '{instances}'. Exiting..."
+                    )
                     return
 
-                click.echo(f"Running configs for problem: {problem_name} on {len(instance_paths)} instance(s).")
-                
+                click.echo(
+                    f"Running configs for problem: {problem_name} on {len(instance_paths)} instance(s)."
+                )
+
                 for instance_path_str in instance_paths:
                     instance_path = Path(instance_path_str)
                     click.echo("-" * 50)
