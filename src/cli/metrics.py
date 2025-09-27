@@ -76,7 +76,7 @@ def merge_runs_to_non_dominated_front(runs: list[SavedRun]) -> np.ndarray:
         logging.warning("No solutions found in any run to create a reference front.")
         return np.array([])
 
-    combined_objectives = np.array(all_objectives)
+    combined_objectives = np.fix(np.array(all_objectives))
     nd_sorting = NonDominatedSorting()
     # NonDominatedSorting assumes minimization, which is what we want.
     non_dominated_indices = nd_sorting.do(
@@ -604,8 +604,7 @@ You can also click on graphs in legend to show/hide any specific one.
 
     if predefined_front:
         logger.info("Got a predefined reference front!")
-        predefined_front_np, _ = flip_objectives_to_positive(np.array(predefined_front))
-        reference_front = -predefined_front_np
+        reference_front = np.array(predefined_front)
     else:
         logger.info("Merging all runs to get an approximate reference front...")
         reference_front = merge_runs_to_non_dominated_front(all_runs)
@@ -629,8 +628,8 @@ You can also click on graphs in legend to show/hide any specific one.
 
     # Calculate hypervolume for each run and prepare data for plotting
     plot_data = []
-
-    hypervolume_indicator = HV(ref_point=(0, 0))
+    hypervolume_reference_point = _get_hypervolume_reference_point([reference_front])
+    hypervolume_indicator = HV(ref_point=hypervolume_reference_point)
 
     for run_name, runs in filtered_runs_grouped.items():
         if not runs:
