@@ -680,8 +680,7 @@ You can also click on graphs in legend to show/hide any specific one.
     objective_names: list[str] = ["Z1", "Z2"]
     if kwargs.get("objective_names"):
         objective_names = [
-            name.strip()
-            for name in kwargs.get("objective_names", "").split(",")
+            name.strip() for name in kwargs.get("objective_names", "").split(",")
         ]
 
     if all_runs:
@@ -690,8 +689,7 @@ You can also click on graphs in legend to show/hide any specific one.
 
         if all_flipped_indices:
             flipped_obj_labels = [
-                objective_names[i]
-                for i in sorted(list(all_flipped_indices))
+                objective_names[i] for i in sorted(list(all_flipped_indices))
             ]
             note = f" (Note: {', '.join(flipped_obj_labels)} were negated)"
             title_str += note

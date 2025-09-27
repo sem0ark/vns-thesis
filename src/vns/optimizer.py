@@ -46,12 +46,16 @@ class ElementwiseVNSOptimizer[T](VNSOptimizerAbstract[T]):
             while k < len(self.search_functions):
                 shaken_solution = self.shake_function(current_solution, k + 1, self)
                 accepted = False
-                for intensified_solution in self.search_functions[k](shaken_solution, self):
+                for intensified_solution in self.search_functions[k](
+                    shaken_solution, self
+                ):
                     if not intensified_solution:
                         yield False
                         continue
 
-                    local_accepted = self.acceptance_criterion.accept(intensified_solution)
+                    local_accepted = self.acceptance_criterion.accept(
+                        intensified_solution
+                    )
                     accepted = accepted or local_accepted
 
                 k = 0 if accepted else k + 1
