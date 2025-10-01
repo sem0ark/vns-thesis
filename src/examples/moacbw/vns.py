@@ -196,7 +196,7 @@ def prepare_optimizers(
             acceptance_criterion=make_acc_func(),
             shake_function=shake_func,
             name=config_name,
-            version=4,
+            version=11,
         )
 
         def runner_func(run_time, _config=config):
