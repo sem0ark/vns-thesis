@@ -65,14 +65,14 @@ def _load_runs(
         try:
             with open(file_path, "r") as f:
                 data = json.load(f)
+                metadata = Metadata(**data["metadata"])
+                solutions = {
+                    tuple(s["objectives"]): SavedSolution(objectives=s["objectives"])
+                    for s in data["solutions"]
+                }
+                del data
 
-            metadata = Metadata(**data["metadata"])
             config_name = metadata.name
-
-            solutions = {
-                tuple(s["objectives"]): SavedSolution(objectives=s["objectives"])
-                for s in data["solutions"]
-            }
             run = SavedRun(metadata=metadata, solutions=list(solutions.values()))
 
             # Keep only the newest version for each config name
@@ -306,7 +306,8 @@ class CLI:
                     return
 
                 click.echo(
-                    f"Running configs for problem: {problem_name} on {len(instance_paths)} instance(s)."
+                    f"Running configs for problem: {problem_name} on {len(instance_paths)} instance(s):\n"
+                    + "\n".join(instance_paths)
                 )
 
                 for instance_path_str in instance_paths:

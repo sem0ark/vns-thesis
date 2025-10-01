@@ -3,7 +3,7 @@ import logging
 from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Tuple, cast
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -12,9 +12,9 @@ import tabulate
 from matplotlib.transforms import Bbox
 from pymoo.indicators.hv import HV
 from pymoo.indicators.igd import IGD
-from pymoo.util.nds.non_dominated_sorting import NonDominatedSorting
 
 from src.cli.shared import SavedRun
+from src.vns.acceptance import AcceptBeam
 
 logger = logging.getLogger("cli/metrics.py")
 
@@ -66,27 +66,20 @@ def merge_runs_to_non_dominated_front(runs: list[SavedRun]) -> np.ndarray:
         A NumPy array representing the non-dominated reference front.
     """
 
-    all_objectives = []
-
+    reference_front = AcceptBeam()
     for run in runs:
         for sol in run.solutions:
-            all_objectives.append(sol.objectives)
+            reference_front.accept(cast(Any, sol))
+
+    all_objectives = []
+    for sol in reference_front.get_all_solutions():
+        all_objectives.append(sol.objectives)
 
     if not all_objectives:
         logging.warning("No solutions found in any run to create a reference front.")
         return np.array([])
 
-    combined_objectives = np.fix(np.array(all_objectives))
-    nd_sorting = NonDominatedSorting()
-    # NonDominatedSorting assumes minimization, which is what we want.
-    non_dominated_indices = nd_sorting.do(
-        combined_objectives, only_non_dominated_front=True
-    )
-
-    reference_front = combined_objectives[non_dominated_indices]
-    reference_front = np.unique(reference_front, axis=0)
-
-    return reference_front
+    return np.unique(np.array(all_objectives), axis=0)
 
 
 def calculate_multiplicative_epsilon(A: np.ndarray, R: np.ndarray) -> float:
