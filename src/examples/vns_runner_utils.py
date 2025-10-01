@@ -41,17 +41,11 @@ def run_vns_optimizer(
         improved_in_cycle = improved or improved_in_cycle
         if iteration & logging_interval_mask == 0:
             front = optimizer.acceptance_criterion.get_all_solutions()
-            skewed_buffer = optimizer.acceptance_criterion.__dict__.get(
-                "skewed_buffer", None
-            )
 
             logger.info(
                 "Iteration %d %s %s %s",
                 iteration,
                 f"({len(front)} solutions in front)" if front is not None else "",
-                f"({len(skewed_buffer)} skewed solutions)"
-                if skewed_buffer is not None
-                else "",
                 improved_in_cycle and ": Improved!" or "",
             )
             improved_in_cycle = False

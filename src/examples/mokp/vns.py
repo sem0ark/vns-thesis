@@ -178,7 +178,7 @@ def prepare_optimizers(
                 [
                     ("BI", best_improvement),
                     ("FI", first_improvement),
-                    ("QFI", first_improvement_quick),
+                    ("QI", first_improvement_quick),
                 ],
                 [("op_ar", add_remove_op), ("op_swap", swap_op)],
             )
@@ -206,7 +206,7 @@ def prepare_optimizers(
             for (search_name, search_func_factory) in [
                 ("BI", best_improvement),
                 ("FI", first_improvement),
-                ("QFI", first_improvement_quick),
+                ("QI", first_improvement_quick),
             ]
         ],
     ]
