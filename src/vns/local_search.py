@@ -2,7 +2,7 @@ from ast import TypeVar
 from typing import Callable, Iterable
 
 from src.vns.abstract import NeighborhoodOperator, Solution, VNSOptimizerAbstract
-from src.vns.acceptance import ComparisonResult, compare
+from src.vns.acceptance import ComparisonResult, is_dominating_min
 
 T = TypeVar("T")
 SearchFunction = Callable[
@@ -29,7 +29,9 @@ def best_improvement(
     if objective_index is not None:
         is_better = lambda a, b: a[objective_index] < b[objective_index]
     else:
-        is_better = lambda a, b: compare(a, b) == ComparisonResult.STRICTLY_BETTER
+        is_better = (
+            lambda a, b: is_dominating_min(a, b) == ComparisonResult.STRICTLY_BETTER
+        )
 
     def search(
         initial: Solution, config: VNSOptimizerAbstract
@@ -49,9 +51,10 @@ def best_improvement(
 
             if improved:
                 current = best_found_in_neighborhood
-                yield None
             else:
                 break
+
+            yield None
 
         yield current
 
@@ -66,7 +69,9 @@ def first_improvement(
     if objective_index is not None:
         is_better = lambda a, b: a[objective_index] < b[objective_index]
     else:
-        is_better = lambda a, b: compare(a, b) == ComparisonResult.STRICTLY_BETTER
+        is_better = (
+            lambda a, b: is_dominating_min(a, b) == ComparisonResult.STRICTLY_BETTER
+        )
 
     def search(
         initial: Solution, config: VNSOptimizerAbstract
@@ -74,18 +79,14 @@ def first_improvement(
         current = initial
 
         while True:
-            improvement_found = False
-
             for neighbor in operator(current, config):
                 if is_better(neighbor.objectives, current.objectives):
                     current = neighbor
-                    improvement_found = True
-
-                    yield None
                     break
-
-            if not improvement_found:
+            else:
                 break
+
+            yield None
 
         yield current
 
@@ -100,7 +101,9 @@ def first_improvement_quick(
     if objective_index is not None:
         is_better = lambda a, b: a[objective_index] < b[objective_index]
     else:
-        is_better = lambda a, b: compare(a, b) == ComparisonResult.STRICTLY_BETTER
+        is_better = (
+            lambda a, b: is_dominating_min(a, b) == ComparisonResult.STRICTLY_BETTER
+        )
 
     def search(
         initial: Solution, config: VNSOptimizerAbstract
@@ -123,25 +126,32 @@ def composite(search_functions: list[SearchFunction]):
 
         vnd_level = 0
         while vnd_level < len(search_functions):
-            improved = False
-            local_best_solution = current
-            for local_solution in search_functions[vnd_level](current, config):
-                if not local_solution:
+            search_generator = search_functions[vnd_level](current, config)
+            local_optimum = None
+
+            # The search generator yields None for intermediate steps,
+            # and the final solution at the end.
+            # Used to ensure termination on time,
+            # when running optimization session
+            # with large search neighborhoods.
+            for solution in search_generator:
+                if solution is None:
                     yield None
                     continue
 
-                if (
-                    compare(local_solution.objectives, local_best_solution.objectives)
-                    == ComparisonResult.STRICTLY_BETTER
-                ):
-                    improved = True
-                    local_best_solution = local_solution
+                local_optimum = solution
 
-            if improved:
+            if (
+                local_optimum
+                and is_dominating_min(local_optimum.objectives, current.objectives)
+                == ComparisonResult.STRICTLY_BETTER
+            ):
+                current = local_optimum
                 vnd_level = 0
-                current = local_best_solution
             else:
                 vnd_level += 1
+
+            yield None
 
         yield current
 
