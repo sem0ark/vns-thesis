@@ -43,7 +43,7 @@ def run_vns_optimizer(
             front = optimizer.acceptance_criterion.get_all_solutions()
 
             logger.info(
-                "Iteration %d %s %s %s",
+                "Iteration %d %s %s",
                 iteration,
                 f"({len(front)} solutions in front)" if front is not None else "",
                 improved_in_cycle and ": Improved!" or "",
