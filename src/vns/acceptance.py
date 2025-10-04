@@ -1,5 +1,4 @@
 import random
-from collections import deque
 from enum import Enum
 from typing import Callable
 
@@ -49,7 +48,14 @@ def is_dominating_min(
     return ComparisonResult.NON_DOMINATED
 
 
-class AcceptBeam(AcceptanceCriterion):
+def compare_solutions_better(
+    new_solution: Solution,
+    current_solution: Solution,
+) -> ComparisonResult:
+    return is_dominating_min(new_solution.objectives, current_solution.objectives)
+
+
+class ParetoFront(AcceptanceCriterion):
     """
     Maintains an archive of non-dominated solutions (Pareto front).
 
@@ -60,10 +66,12 @@ class AcceptBeam(AcceptanceCriterion):
     - In case it rejects a solution, solution is discarded.
     """
 
-    def __init__(self):
+    def __init__(self, comparison_function=compare_solutions_better):
         super().__init__()
 
         self.front: list[Solution] = []
+        self.comparison_cache: dict[int, ComparisonResult] = {}
+        self.compare_solutions = comparison_function
 
     def accept(self, candidate: Solution) -> bool:
         """
@@ -73,11 +81,12 @@ class AcceptBeam(AcceptanceCriterion):
 
         candidate_is_dominating = False
 
-        for solution in self.front:
+        for i, solution in enumerate(self.front):
             if candidate == solution:
                 return False
 
-            result = is_dominating_min(candidate.objectives, solution.objectives)
+            result = self.compare_solutions(candidate, solution)
+            self.comparison_cache[i] = result
 
             if result == ComparisonResult.WORSE:
                 return False
@@ -91,10 +100,7 @@ class AcceptBeam(AcceptanceCriterion):
             for j in range(len(self.front)):
                 solution = self.front[j]
 
-                if (
-                    is_dominating_min(candidate.objectives, solution.objectives)
-                    != ComparisonResult.STRICTLY_BETTER
-                ):
+                if self.comparison_cache[j] != ComparisonResult.STRICTLY_BETTER:
                     self.front[i] = solution
                     i += 1
 
@@ -113,9 +119,10 @@ class AcceptBeam(AcceptanceCriterion):
 
     def clear(self):
         self.front.clear()
+        self.comparison_cache.clear()
 
 
-class AcceptBeamSkewed(AcceptBeam):
+class AcceptBeamSkewed(AcceptanceCriterion):
     """
     Skewed Acceptance Criterion for SVNS.
     Minimization acceptance criterion with beam search like behavior implementing Skewed acceptance.
@@ -133,8 +140,6 @@ class AcceptBeamSkewed(AcceptBeam):
         self,
         alpha: list[float],
         distance_metric: Callable[[Solution, Solution], float],
-        max_skewed_solutions=100,
-        accept_skewed_non_dominated=False,
     ):
         """Init.
 
@@ -145,10 +150,21 @@ class AcceptBeamSkewed(AcceptBeam):
         """
         super().__init__()
         self.alpha = alpha
-        self.distance_metric = distance_metric
 
-        self.skewed_buffer: deque[Solution] = deque(maxlen=max_skewed_solutions)
-        self.accept_skewed_non_dominated = accept_skewed_non_dominated
+        def compare_solutions_better_skewed(
+            new_solution: Solution, current_solution: Solution
+        ) -> ComparisonResult:
+            distance = distance_metric(new_solution, current_solution)
+            skewed_objectives = tuple(
+                obj_i - alpha[i] * distance
+                for i, obj_i in enumerate(current_solution.objectives)
+            )
+            return is_dominating_min(skewed_objectives, current_solution.objectives)
+
+        self.true_front = ParetoFront()
+        self.skewed_front = ParetoFront(
+            comparison_function=compare_solutions_better_skewed
+        )
 
     def accept(self, candidate: Solution) -> bool:
         if len(candidate.objectives) != len(self.alpha):
@@ -156,44 +172,18 @@ class AcceptBeamSkewed(AcceptBeam):
                 f"Expected to have the same number of alpha weights ({len(self.alpha)}) as the number of objectives {len(candidate.objectives)}."
             )
 
-        if super().accept(candidate):
-            return True
-
-        for solution in self.front:
-            distance = self.distance_metric(candidate, solution)
-
-            skewed_candidate_objectives = tuple(
-                obj_i - self.alpha[i] * distance
-                for i, obj_i in enumerate(candidate.objectives)
-            )
-
-            result = is_dominating_min(skewed_candidate_objectives, solution.objectives)
-            if (
-                result == ComparisonResult.STRICTLY_BETTER
-                or self.accept_skewed_non_dominated
-                and result == ComparisonResult.NON_DOMINATED
-            ):
-                self.skewed_buffer.append(candidate)
-                return True
-
-        return False
+        self.true_front.accept(candidate)
+        return self.skewed_front.accept(candidate)
 
     def get_one_current_solution(self) -> Solution:
-        front_size = len(self.front)
-        buffer_size = len(self.skewed_buffer)
-        total_size = front_size + buffer_size
+        return self.skewed_front.get_one_current_solution()
 
-        if total_size == 0:
-            raise ValueError("No solutions available in the front or buffer.")
-
-        if buffer_size == 0 or random.random() < front_size / total_size:
-            return random.choice(self.front)
-
-        return self.skewed_buffer.popleft()
+    def get_all_solutions(self) -> list[Solution]:
+        return self.true_front.get_all_solutions()
 
     def clear(self):
-        super().clear()
-        self.skewed_buffer.clear()
+        self.true_front.clear()
+        self.skewed_front.clear()
 
 
 class AcceptBatch(AcceptanceCriterion):
@@ -211,19 +201,19 @@ class AcceptBatch(AcceptanceCriterion):
     def __init__(self):
         super().__init__()
         # Holds the live, updated non-dominated solutions
-        self.archive: AcceptBeam = AcceptBeam()
+        self.true_front: ParetoFront = ParetoFront()
         # Holds the solutions to be iterated over in the current batch
         self.front_snapshot: list[Solution] = []
 
     def accept(self, candidate: Solution) -> bool:
-        accepted = self.archive.accept(candidate)
+        accepted = self.true_front.accept(candidate)
         if not self.front_snapshot:
             self._take_snapshot()
 
         return accepted
 
     def get_all_solutions(self) -> list[Solution]:
-        return self.archive.get_all_solutions()
+        return self.true_front.get_all_solutions()
 
     def get_one_current_solution(self) -> Solution:
         if not self.front_snapshot:
@@ -235,11 +225,18 @@ class AcceptBatch(AcceptanceCriterion):
         raise ValueError("Archive is empty and all solutions have been processed.")
 
     def _take_snapshot(self):
-        self.front_snapshot = self.archive.front.copy()
+        current_solutions = self.true_front.get_all_solutions()
+        for i, solution in enumerate(current_solutions):
+            if i == len(self.front_snapshot):
+                self.front_snapshot.append(solution)
+            else:
+                self.front_snapshot[i] = solution
+
+            del self.front_snapshot[len(current_solutions) :]
 
     def clear(self):
         self.front_snapshot.clear()
-        self.archive.clear()
+        self.true_front.clear()
 
 
 class AcceptBatchSkewed(AcceptanceCriterion):
@@ -260,45 +257,68 @@ class AcceptBatchSkewed(AcceptanceCriterion):
         self,
         alpha: list[float],
         distance_metric: Callable[[Solution, Solution], float],
-        max_skewed_solutions=100,
-        accept_skewed_non_dominated=False,
     ):
         super().__init__()
-        self.archive: AcceptBeamSkewed = AcceptBeamSkewed(
-            alpha, distance_metric, max_skewed_solutions, accept_skewed_non_dominated
+        self.alpha = alpha
+
+        def compare_solutions_better_skewed(
+            new_solution: Solution, current_solution: Solution
+        ) -> ComparisonResult:
+            distance = distance_metric(new_solution, current_solution)
+            skewed_objectives = tuple(
+                obj_i - alpha[i] * distance
+                for i, obj_i in enumerate(current_solution.objectives)
+            )
+            # return is_dominating_min(skewed_objectives, current_solution.objectives)
+            if (
+                is_dominating_min(skewed_objectives, current_solution.objectives)
+                != ComparisonResult.WORSE
+            ):
+                return ComparisonResult.NON_DOMINATED
+            return is_dominating_min(
+                new_solution.objectives, current_solution.objectives
+            )
+
+        # Holds the live, updated non-dominated solutions
+        self.true_front = ParetoFront()
+        self.skewed_front = ParetoFront(
+            comparison_function=compare_solutions_better_skewed
         )
+        # Holds the solutions to be iterated over in the current batch
         self.front_snapshot: list[Solution] = []
-        self.skewed_buffer_snapshot: deque[Solution] = deque()
 
     def accept(self, candidate: Solution) -> bool:
-        accepted = self.archive.accept(candidate)
+        self.true_front.accept(candidate)
+        accepted = self.skewed_front.accept(candidate)
+
         if not self.front_snapshot:
             self._take_snapshot()
 
         return accepted
 
     def get_all_solutions(self) -> list[Solution]:
-        return self.archive.get_all_solutions()
+        return self.true_front.get_all_solutions()
 
     def get_one_current_solution(self) -> Solution:
-        if not self.front_snapshot and not self.skewed_buffer_snapshot:
+        if not self.front_snapshot:
             self._take_snapshot()
 
         if self.front_snapshot:
             return self.front_snapshot.pop()
 
-        if self.skewed_buffer_snapshot:
-            return self.skewed_buffer_snapshot.pop()
-
         raise ValueError("Archive and skewed buffer are empty.")
 
     def _take_snapshot(self):
-        self.front_snapshot = self.archive.front.copy()
-        self.skewed_buffer_snapshot = self.archive.skewed_buffer.copy()
+        current_solutions = self.skewed_front.get_all_solutions()
+        for i, solution in enumerate(current_solutions):
+            if i == len(self.front_snapshot):
+                self.front_snapshot.append(solution)
+            else:
+                self.front_snapshot[i] = solution
 
-        self.archive.skewed_buffer.clear()
+            del self.front_snapshot[len(current_solutions) :]
 
     def clear(self):
+        self.true_front.clear()
+        self.skewed_front.clear()
         self.front_snapshot.clear()
-        self.skewed_buffer_snapshot.clear()
-        self.archive.clear()

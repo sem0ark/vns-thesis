@@ -1,21 +1,18 @@
 from ast import TypeVar
 from typing import Callable, Iterable
 
-from src.vns.abstract import NeighborhoodOperator, Solution, VNSOptimizerAbstract
+from src.vns.abstract import Solution
 from src.vns.acceptance import ComparisonResult, is_dominating_min
 
 T = TypeVar("T")
-SearchFunction = Callable[
-    [Solution[T], VNSOptimizerAbstract[T]], Iterable[Solution[T] | None]
-]
+SearchFunction = Callable[[Solution], Iterable[Solution | None]]
+NeighborhoodOperator = Callable[[Solution], Iterable[Solution]]
 
 
 def noop(*_args):
     """Skip search phase, used for RVNS."""
 
-    def search(
-        initial: Solution, _config: VNSOptimizerAbstract
-    ) -> Iterable[Solution | None]:
+    def search(initial: Solution) -> Iterable[Solution | None]:
         yield initial
 
     return search
@@ -23,26 +20,24 @@ def noop(*_args):
 
 def best_improvement(
     operator: NeighborhoodOperator, objective_index: int | None = None
-):
+) -> SearchFunction:
     """Go as far as possible, each time moving to the best near neighbor."""
 
     if objective_index is not None:
-        is_better = lambda a, b: a[objective_index] < b[objective_index]
+        is_better = lambda a, b: a[objective_index] < b[objective_index]  # noqa: E731
     else:
-        is_better = (
+        is_better = (  # noqa: E731
             lambda a, b: is_dominating_min(a, b) == ComparisonResult.STRICTLY_BETTER
         )
 
-    def search(
-        initial: Solution, config: VNSOptimizerAbstract
-    ) -> Iterable[Solution | None]:
+    def search(initial: Solution) -> Iterable[Solution | None]:
         current = initial
 
         while True:
             improved = False
             best_found_in_neighborhood = current
 
-            for neighbor in operator(current, config):
+            for neighbor in operator(current):
                 if is_better(
                     neighbor.objectives, best_found_in_neighborhood.objectives
                 ):
@@ -67,19 +62,17 @@ def first_improvement(
     """Go as far as possible, each time moving to the first better near neighbor."""
 
     if objective_index is not None:
-        is_better = lambda a, b: a[objective_index] < b[objective_index]
+        is_better = lambda a, b: a[objective_index] < b[objective_index]  # noqa: E731
     else:
-        is_better = (
+        is_better = (  # noqa: E731
             lambda a, b: is_dominating_min(a, b) == ComparisonResult.STRICTLY_BETTER
         )
 
-    def search(
-        initial: Solution, config: VNSOptimizerAbstract
-    ) -> Iterable[Solution | None]:
+    def search(initial: Solution) -> Iterable[Solution | None]:
         current = initial
 
         while True:
-            for neighbor in operator(current, config):
+            for neighbor in operator(current):
                 if is_better(neighbor.objectives, current.objectives):
                     current = neighbor
                     break
@@ -99,16 +92,14 @@ def first_improvement_quick(
     """Move to the first better near neighbor once."""
 
     if objective_index is not None:
-        is_better = lambda a, b: a[objective_index] < b[objective_index]
+        is_better = lambda a, b: a[objective_index] < b[objective_index]  # noqa: E731
     else:
-        is_better = (
+        is_better = (  # noqa: E731
             lambda a, b: is_dominating_min(a, b) == ComparisonResult.STRICTLY_BETTER
         )
 
-    def search(
-        initial: Solution, config: VNSOptimizerAbstract
-    ) -> Iterable[Solution | None]:
-        for neighbor in operator(initial, config):
+    def search(initial: Solution) -> Iterable[Solution | None]:
+        for neighbor in operator(initial):
             if is_better(neighbor.objectives, initial.objectives):
                 yield neighbor
                 return
@@ -119,14 +110,12 @@ def first_improvement_quick(
 
 
 def composite(search_functions: list[SearchFunction]):
-    def search(
-        initial: Solution, config: VNSOptimizerAbstract
-    ) -> Iterable[Solution | None]:
+    def search(initial: Solution) -> Iterable[Solution | None]:
         current = initial
 
         vnd_level = 0
         while vnd_level < len(search_functions):
-            search_generator = search_functions[vnd_level](current, config)
+            search_generator = search_functions[vnd_level](current)
             local_optimum = None
 
             # The search generator yields None for intermediate steps,

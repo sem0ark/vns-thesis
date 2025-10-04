@@ -1,5 +1,6 @@
 runs
 *.gz
+*.dat
 
 # General
 .DS_Store

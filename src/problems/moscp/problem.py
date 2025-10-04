@@ -7,12 +7,12 @@ from pymoo.core.problem import ElementwiseProblem
 
 from src.vns.abstract import Problem, Solution
 
-type MOACBWSolution = Solution[np.ndarray]
+type MOSCPSolution = Solution[np.ndarray]
 
 
-class _MOACBWSolution(Solution[np.ndarray]):
+class _MOSCPSolution(Solution[np.ndarray]):
     """
-    Represents a solution for the MO-ABCW problem.
+    Represents a solution for the MO-SCP problem.
     data: A 1D numpy array representing the permutation of vertex indices (0 to N-1).
     The position in the array determines the position of a given node (0 to N-1).
     """
@@ -32,15 +32,15 @@ class _MOACBWSolution(Solution[np.ndarray]):
             positions[v] = pos
         return positions
 
+    def to_json_serializable(self) -> Any:
+        return self.data.tolist()
 
-class MOACBWProblem(Problem[np.ndarray]):
-    """
-    Implementation of the Multi-objective Antibandwidth-Cutwidth (MO-ABCW) problem.
+    @staticmethod
+    def from_json_serializable(problem: Problem[np.ndarray], serialized_data: list[int]) -> MOSCPSolution:
+        return _MOSCPSolution(np.array(serialized_data), problem)
 
-    Objectives:
-    1. Antibandwidth (z1): MAXIMIZE -> Implemented as Minimize (-z1)
-    2. Cutwidth (z2): MINIMIZE -> Implemented as Minimize (z2)
-    """
+
+class MOSCPProblem(Problem[np.ndarray]):
 
     def __init__(
         self,
@@ -48,7 +48,7 @@ class MOACBWProblem(Problem[np.ndarray]):
         # Adjacency list: [(u, [v1, v2, ...]), ...] where u and v are 0-based integers.
         graph_adj_list: list[tuple[int, list[int]]],
     ):
-        super().__init__(self.evaluate, self.generate_initial_solutions)
+        super().__init__(num_constraints=0, num_objectives=2, num_variables=num_nodes)
 
         self.num_nodes = num_nodes
         self.num_objectives = 2
@@ -64,23 +64,23 @@ class MOACBWProblem(Problem[np.ndarray]):
             if i not in self.adj_list:
                 self.adj_list[i] = []
 
-    def generate_initial_solutions(
+    def get_initial_solutions(
         self, num_solutions: int = 50
-    ) -> Iterable[MOACBWSolution]:
+    ) -> Iterable[MOSCPSolution]:
         """Generates a specified number of random permutations (layouts)."""
         solutions = []
         for _ in range(num_solutions):
             # Solution is a permutation of vertex indices [0, 1, ..., N-1]
             solution_data = np.arange(self.num_nodes, dtype=int)
             np.random.shuffle(solution_data)
-            solutions.append(_MOACBWSolution(solution_data, self))
+            solutions.append(_MOSCPSolution(solution_data, self))
         return solutions
 
-    def get_antibandwidth(self, solution: MOACBWSolution) -> int:
+    def get_antibandwidth(self, solution: MOSCPSolution) -> int:
         """
         Antibandwidth = min_{v in V} { min_{(u,v) in E} { |pi(u) - pi(v)| } }
         """
-        sol: _MOACBWSolution = cast(Any, solution)
+        sol: _MOSCPSolution = cast(Any, solution)
         positions = sol.node_positions
 
         antibandwidth_values = []
@@ -101,7 +101,7 @@ class MOACBWProblem(Problem[np.ndarray]):
 
         return min(antibandwidth_values) + sum(antibandwidth_values) / self.num_nodes**2
 
-    def get_cutwidth(self, solution: MOACBWSolution) -> int:
+    def get_cutwidth(self, solution: MOSCPSolution) -> int:
         # We can calculate it using a more optimized version of:
         # for i in [0, N-1] Compute max of:
         #    cut_edges = 0
@@ -112,7 +112,7 @@ class MOACBWProblem(Problem[np.ndarray]):
         #            if neighbor in set_right:
         #                cut_edges += 1
 
-        sol: _MOACBWSolution = cast(Any, solution)
+        sol: _MOSCPSolution = cast(Any, solution)
         permutation = sol.data
         positions = sol.node_positions
 
@@ -154,7 +154,7 @@ class MOACBWProblem(Problem[np.ndarray]):
 
         return max(cuts) + sum(cuts) / self.num_nodes**2
 
-    def evaluate(self, solution: MOACBWSolution) -> Tuple[float, float]:
+    def evaluate_solution(self, solution: MOSCPSolution) -> Tuple[float, float]:
         """
         Calculates the two objective function values (z1 and z2).
         """
@@ -170,9 +170,12 @@ class MOACBWProblem(Problem[np.ndarray]):
 
         return z1, z2
 
+    def satisfies_constraints(self, solution: MOSCPSolution) -> bool:
+        return True
+
     @staticmethod
     def calculate_solution_distance(
-        sol1: MOACBWSolution, sol2: MOACBWSolution
+        sol1: MOSCPSolution, sol2: MOSCPSolution
     ) -> float:
         """
         Calculates the distance between two permutations using normalized Hamming distance.
@@ -187,7 +190,7 @@ class MOACBWProblem(Problem[np.ndarray]):
         return float(disagreements) / sol1.data.size
 
     @staticmethod
-    def load(filename: str) -> "MOACBWProblem":
+    def load(filename: str) -> "MOSCPProblem":
         """
         Load JSON-formatted MO-ACBW instance.
         Expects to have two main elements defined under "data":
@@ -205,11 +208,11 @@ class MOACBWProblem(Problem[np.ndarray]):
         nodes = configuration["data"]["nodes"]
         graph = configuration["data"]["graph"]
 
-        return MOACBWProblem(nodes, graph)
+        return MOSCPProblem(nodes, graph)
 
 
-class MOACBWProblemPymoo(ElementwiseProblem):
-    def __init__(self, problem: MOACBWProblem):
+class MOSCPProblemPymoo(ElementwiseProblem):
+    def __init__(self, problem: MOSCPProblem):
         n_var = problem.num_nodes
         n_obj = problem.num_objectives
         n_constr = 0
@@ -231,5 +234,5 @@ class MOACBWProblemPymoo(ElementwiseProblem):
         # np.argsort returns the indices that would sort the array.
         # Basically ranking the results from 0 to N - 1
         permutation_array = np.argsort(x).astype(int)
-        z1, z2 = _MOACBWSolution(permutation_array, self.problem_instance).objectives
+        z1, z2 = _MOSCPSolution(permutation_array, self.problem_instance).objectives
         out["F"] = np.array([z1, z2], dtype=float)

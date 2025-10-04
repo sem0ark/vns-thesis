@@ -21,10 +21,13 @@ def run_vns_optimizer(
         A list of Solution objects representing the final Pareto front.
     """
     logger = logging.getLogger(optimizer.name)
-    start_time = time.time()
     logging_interval_mask = (1 << 10) - 1
 
     improved_in_cycle = False
+    iteration_actual = 1
+    optimizer.reset()
+    
+    start_time = time.time()
     for iteration, improved in enumerate(optimizer.optimize(), 1):
         elapsed_time = time.time() - start_time
 
@@ -38,13 +41,16 @@ def run_vns_optimizer(
             )
             break
 
-        improved_in_cycle = improved or improved_in_cycle
-        if iteration & logging_interval_mask == 0:
+        if improved is not None:
+            iteration_actual += 1
+            improved_in_cycle = improved or improved_in_cycle
+
+        if iteration_actual & logging_interval_mask == 0:
             front = optimizer.acceptance_criterion.get_all_solutions()
 
             logger.info(
                 "Iteration %d %s %s",
-                iteration,
+                iteration_actual,
                 f"({len(front)} solutions in front)" if front is not None else "",
                 improved_in_cycle and ": Improved!" or "",
             )

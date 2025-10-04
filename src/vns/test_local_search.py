@@ -2,8 +2,6 @@ from typing import Iterable
 
 import pytest
 
-from src.vns.abstract import VNSOptimizerAbstract
-from src.vns.acceptance import AcceptBeam
 from src.vns.local_search import (
     best_improvement,
     composite,
@@ -31,16 +29,6 @@ class Solution:
 
 
 @pytest.fixture
-def mock_config():
-    return VNSOptimizerAbstract(
-        name="test",
-        version=1,
-        problem=None,
-        acceptance_criterion=AcceptBeam(),
-    )
-
-
-@pytest.fixture
 def initial_solution_single():
     return Solution((10.0,), 10)
 
@@ -50,9 +38,7 @@ def initial_solution_multi():
     return Solution((10.0, 10.0), 10)
 
 
-def mock_operator_single_objective(
-    current: Solution, config: VNSOptimizerAbstract
-) -> Iterable[Solution]:
+def mock_operator_single_objective(current: Solution) -> Iterable[Solution]:
     """Yields a sequence of neighbors for single-objective tests."""
     # (10) -> (9) -> (11) -> (8) -> (7)
     if current.data_id == 10:
@@ -68,9 +54,7 @@ def mock_operator_single_objective(
         yield Solution((10.0,), 10)  # Worse neighbor
 
 
-def mock_operator_multi_objective(
-    current: Solution, config: VNSOptimizerAbstract
-) -> Iterable[Solution]:
+def mock_operator_multi_objective(current: Solution) -> Iterable[Solution]:
     """Yields a sequence of neighbors for multi-objective tests."""
     # (10, 10) -> (9, 9) [dominates] -> (11, 9) [non-dominated] -> (8, 8) [dominates]
     if current.data_id == 10:
@@ -83,9 +67,7 @@ def mock_operator_multi_objective(
         yield Solution((7.0, 7.0), 7)
 
 
-def mock_operator_mixed(
-    current: Solution, config: VNSOptimizerAbstract
-) -> Iterable[Solution]:
+def mock_operator_mixed(current: Solution) -> Iterable[Solution]:
     """
     Yields neighbors with a mix of worse, non-dominated, and better solutions.
 
@@ -110,9 +92,9 @@ def mock_operator_mixed(
     # Stops for any other ID
 
 
-def test_noop_returns_initial_solution(mock_config, initial_solution_single):
+def test_noop_returns_initial_solution(initial_solution_single):
     search_func = noop()
-    results = list(search_func(initial_solution_single, mock_config))
+    results = list(search_func(initial_solution_single))
     assert len(results) == 1
     assert results[0] == initial_solution_single
 
@@ -141,15 +123,15 @@ def test_noop_returns_initial_solution(mock_config, initial_solution_single):
     ],
 )
 def test_first_improvement_quick(
-    objective_index, initial_sol, operator, expected_id, mock_config
+    objective_index, initial_sol, operator, expected_id
 ):
     search_func = first_improvement_quick(operator, objective_index)
-    results = list(search_func(initial_sol, mock_config))
+    results = list(search_func(initial_sol))
     assert len(results) == 1
     assert results[0].data_id == expected_id
 
 
-def test_best_improvement_single_objective_full_descent(mock_config):
+def test_best_improvement_single_objective_full_descent():
     search_func = best_improvement(mock_operator_single_objective, objective_index=0)
     initial = Solution((10.0,), 10)
 
@@ -158,7 +140,7 @@ def test_best_improvement_single_objective_full_descent(mock_config):
     # Neighborhood(8) yields 7. Best is 7.
     # Neighborhood(7) yields 10. Best is 7 (no improvement). Stop.
 
-    results = list(search_func(initial, mock_config))
+    results = list(search_func(initial))
 
     # Expected results: [None (10->8), None (8->7), S7]
     assert len(results) == 3
@@ -167,7 +149,7 @@ def test_best_improvement_single_objective_full_descent(mock_config):
     assert results[2].data_id == 7  # Final local optimum
 
 
-def test_best_improvement_multi_objective_full_descent(mock_config):
+def test_best_improvement_multi_objective_full_descent():
     search_func = best_improvement(mock_operator_multi_objective)
     initial = Solution((10.0, 10.0), 10)
 
@@ -180,7 +162,7 @@ def test_best_improvement_multi_objective_full_descent(mock_config):
     # Final move is 10 -> 8.
     # N(8) yields S7. S7 dominates S8. Final move is 8 -> 7.
 
-    results = list(search_func(initial, mock_config))
+    results = list(search_func(initial))
 
     # Expected results: [None (10->8), None (8->7), S7]
     assert len(results) == 3
@@ -208,12 +190,10 @@ def test_best_improvement_multi_objective_full_descent(mock_config):
     ],
 )
 def test_first_improvement_iterative_descent(
-    objective_index, initial_sol, operator, expected_flow_ids, mock_config
+    objective_index, initial_sol, operator, expected_flow_ids
 ):
     """Test the full descent path of the first_improvement strategy."""
-    for result in first_improvement(operator, objective_index)(
-        initial_sol, mock_config
-    ):
+    for result in first_improvement(operator, objective_index)(initial_sol):
         if result is not None:
             final_solution = result
             break
@@ -229,7 +209,12 @@ def test_first_improvement_iterative_descent(
         # Case B1: Single-Objective Descent. 10 -> 8 (best) -> 7 (best). Stop.
         (0, Solution((10.0,), 10), mock_operator_single_objective, [10, 8, 7, 7]),
         # Case B2: Multi-Objective Descent. 10 -> 8 (best dominator) -> 7. Stop.
-        (None, Solution((10.0, 10.0), 10), mock_operator_multi_objective, [10, 8, 7, 7]),
+        (
+            None,
+            Solution((10.0, 10.0), 10),
+            mock_operator_multi_objective,
+            [10, 8, 7, 7],
+        ),
         # Case B3: Single-Objective Mixed. 10 -> 13 (obj=9, best improvement) -> 14 (obj=8). Stop.
         (0, Solution((10.0, 10.0), 10), mock_operator_mixed, [10, 13, 14, 14]),
         # Case B4: Multi-Objective Mixed. 10 -> 13 (best dominator) -> 14. Stop.
@@ -239,12 +224,12 @@ def test_first_improvement_iterative_descent(
     ],
 )
 def test_best_improvement_iterative_descent(
-    objective_index, initial_sol, operator, expected_flow_ids, mock_config
+    objective_index, initial_sol, operator, expected_flow_ids
 ):
     """Test the full descent path of the best_improvement strategy."""
 
     final_solution = None
-    for result in best_improvement(operator, objective_index)(initial_sol, mock_config):
+    for result in best_improvement(operator, objective_index)(initial_sol):
         if result is not None:
             final_solution = result
             break
@@ -271,15 +256,13 @@ def test_best_improvement_iterative_descent(
     ],
 )
 def test_first_improvement_quick_one_shot(
-    objective_index, initial_sol, operator, expected_flow_ids, mock_config
+    objective_index, initial_sol, operator, expected_flow_ids
 ):
     """Test the single-shot behavior of first_improvement_quick."""
 
     # 1. Execute the search function
     final_solution = None
-    for result in first_improvement_quick(operator, objective_index)(
-        initial_sol, mock_config
-    ):
+    for result in first_improvement_quick(operator, objective_index)(initial_sol):
         if result is not None:
             final_solution = result
             break
@@ -302,14 +285,14 @@ def test_first_improvement_quick_one_shot(
     ],
 )
 def test_first_improvement_single_objective_descent(
-    initial_sol, operator, expected_flow_ids, mock_config
+    initial_sol, operator, expected_flow_ids
 ):
     """Test the full descent path of first_improvement using only objective index 0."""
     # Explicitly set objective_index=0
     search_func = first_improvement(operator, objective_index=0)
 
     final_solution = None
-    for result in search_func(initial_sol, mock_config):
+    for result in search_func(initial_sol):
         if result is not None:
             final_solution = result
             break
@@ -318,12 +301,14 @@ def test_first_improvement_single_objective_descent(
         "Final solution ID mismatch."
     )
 
+
 # Search functions (defined outside the test function for clarity)
 VND_LEVELS = [
     first_improvement(mock_operator_mixed, objective_index=None),
     best_improvement(mock_operator_multi_objective, objective_index=None),
     first_improvement(mock_operator_mixed, objective_index=None),
 ]
+
 
 @pytest.mark.parametrize(
     "initial_sol, search_functions, expected_final_id",
@@ -336,7 +321,7 @@ VND_LEVELS = [
     ],
 )
 def test_composite_vnd_flow(
-    initial_sol, search_functions, expected_final_id, mock_config
+    initial_sol, search_functions, expected_final_id
 ):
     """
     Tests the full VND flow, ensuring correct level resetting and incrementing
@@ -345,7 +330,7 @@ def test_composite_vnd_flow(
     vnd_search_func = composite(search_functions)
 
     # Run the generator to get the final solution
-    results = list(vnd_search_func(initial_sol, mock_config))
+    results = list(vnd_search_func(initial_sol))
     final_solution = results[-1]
 
     # Assert the Final Solution ID

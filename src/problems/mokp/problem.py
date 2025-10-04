@@ -20,6 +20,13 @@ class _MOKPSolution(Solution[np.ndarray]):
         h.update(self.data.tobytes())
         return h.intdigest()
 
+    def to_json_serializable(self):
+        return self.data.tolist()
+
+    @staticmethod
+    def from_json_serializable(problem: Problem[np.ndarray], serialized_data: list[int]) -> MOKPSolution:
+        return _MOKPSolution(np.array(serialized_data), problem)
+
 
 class MOKPProblem(Problem[np.ndarray]):
     def __init__(
@@ -28,19 +35,17 @@ class MOKPProblem(Problem[np.ndarray]):
         profits: list[list[int]],
         capacity: int | list[int],
     ):
-        super().__init__(self.evaluate, self.generate_initial_solutions)
+        super().__init__(
+            num_variables=len(weights[0]),
+            num_objectives=len(profits),
+            num_constraints=len(weights),
+        )
 
         self.weights = np.array(weights, dtype=int)
         self.profits = np.array(profits, dtype=int)
         self.capacity = np.array(capacity, dtype=int)
 
-        self.num_items = self.weights.shape[1]
-        self.num_objectives = self.profits.shape[0]
-        self.num_limits = self.weights.shape[0]
-
-    def generate_initial_solutions(
-        self, num_solutions: int = 50
-    ) -> Iterable[MOKPSolution]:
+    def get_initial_solutions(self, num_solutions: int = 50) -> Iterable[MOKPSolution]:
         """
         Generates a specified number of random feasible solutions for the MOKP.
         Each solution is created by iterating through items in a random order
@@ -48,28 +53,28 @@ class MOKPProblem(Problem[np.ndarray]):
         """
         solutions = []
         for _ in range(num_solutions):
-            solution_data = np.zeros(self.num_items, dtype=int)
-            items_to_add = list(range(self.num_items))
+            solution_data = np.zeros(self.num_variables, dtype=int)
+            items_to_add = list(range(self.num_variables))
             random.shuffle(items_to_add)
 
             for item_idx in items_to_add:
                 temp_data = solution_data.copy()
                 temp_data[item_idx] = 1
-                if self.is_feasible(temp_data):
+                if self.satisfies_constraints(_MOKPSolution(temp_data, self)):
                     solution_data = temp_data
 
             solutions.append(_MOKPSolution(solution_data, self))
         return solutions
 
-    def is_feasible(self, solution_data: np.ndarray) -> bool:
+    def satisfies_constraints(self, solution: MOKPSolution) -> bool:
         """Checks if a solution is feasible with respect to knapsack capacity."""
-        total_weight = np.sum(solution_data * self.weights, axis=1)
+        total_weight = np.sum(solution.data * self.weights, axis=1)
         return np.all(total_weight <= self.capacity, axis=0)
 
-    def evaluate(self, solution: MOKPSolution) -> tuple[float, ...]:
+    def evaluate_solution(self, solution: MOKPSolution) -> tuple[float, ...]:
         """Calculates the profit for each objective."""
         solution_data = solution.data
-        mult = 1 if self.is_feasible(solution.data) else 0
+        mult = 1 if self.satisfies_constraints(solution) else 0
 
         # Negate for minimization
         result = tuple(
@@ -85,10 +90,6 @@ class MOKPProblem(Problem[np.ndarray]):
 
     @staticmethod
     def load(filename: str) -> "MOKPProblem":
-        """
-        Creates a mock MOKP problem for the example.
-        In a real scenario, this would load from a file like MOCOLib instances.
-        """
         try:
             with open(filename, "r") as f:
                 configuration = json.load(f)
@@ -114,9 +115,9 @@ class MOKPPymoo(ElementwiseProblem):
 
     def __init__(self, problem: MOKPProblem):
         super().__init__(
-            n_var=problem.num_items,
+            n_var=problem.num_variables,
             n_obj=problem.num_objectives,
-            n_constr=problem.num_limits,
+            n_constr=problem.num_constraints,
             xl=0.0,
             xu=1.0,
             vtype=bool,
@@ -124,10 +125,6 @@ class MOKPPymoo(ElementwiseProblem):
         self.problem_instance = problem
 
     def _evaluate(self, x, out, *args, **kwargs):
-        """
-        Evaluate a solution `x`.
-        `x` is a NumPy array representing a single solution (a vector of booleans).
-        """
         x = np.round(x)  # NSGA instance is still resulting in array of floats
         total_profits = np.sum(x * self.problem_instance.profits, axis=1)
 

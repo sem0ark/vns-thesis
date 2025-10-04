@@ -1,7 +1,8 @@
+from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from enum import Enum
 from functools import cached_property
-from typing import Any, Callable, Iterable, Self, TypeVar
+from typing import Any, Iterable, Self, TypeVar
 
 T = TypeVar("T")
 
@@ -15,18 +16,43 @@ class OptimizationDirection(Enum):
     MAX = -1
 
 
-@dataclass
-class Problem[T]:
+class Problem[T](ABC):
     """
     Abstract interface for defining an optimization problem.
     Concrete problems (e.g., TSP, knapsack) will implement this.
     """
 
-    objective_function: Callable[["Solution[T]"], tuple[float, ...]]
-    """Objective function for this problem, expected minimization."""
+    def __init__(
+        self,
+        num_variables: int,
+        num_objectives: int,
+        num_constraints: int,
+    ) -> None:
+        super().__init__()
+        self.num_variables = num_variables
+        self.num_objectives = num_objectives
+        self.num_constraints = num_constraints
 
-    get_initial_solutions: Callable[[], Iterable["Solution[T]"]]
-    """Get a random solution to start with."""
+    @abstractmethod
+    def evaluate_solution(self, solution: "Solution[T]") -> tuple[float, ...]:
+        """Objective function for this problem, expected minimization."""
+        raise NotImplementedError()
+
+    @abstractmethod
+    def get_initial_solutions(self, num_solutions: int = 50) -> Iterable["Solution[T]"]:
+        """Get a random solution to start with."""
+        raise NotImplementedError()
+
+    @abstractmethod
+    def satisfies_constraints(self, solution: "Solution[T]") -> bool:
+        """Checks whether a solution is legit for a given problem."""
+        raise NotImplementedError()
+
+    @staticmethod
+    @abstractmethod
+    def load(filename: str) -> "Problem[T]":
+        """Loads problem instance from a given file path."""
+        raise NotImplementedError()
 
 
 @dataclass
@@ -48,7 +74,7 @@ class Solution[T]:
 
     @cached_property
     def objectives(self) -> tuple[float, ...]:
-        return self.problem.objective_function(self)
+        return self.problem.evaluate_solution(self)
 
     def new(self, data: Any) -> Self:
         return self.__class__(data, self.problem)
@@ -68,6 +94,10 @@ class Solution[T]:
 
     def to_json_serializable(self) -> Any:
         return self.data
+
+    @staticmethod
+    def from_json_serializable(problem: Problem[T], serialized_data: Any) -> "Solution[T]":
+        raise NotImplementedError()
 
 
 class AcceptanceCriterion[T]:
@@ -121,9 +151,15 @@ class VNSOptimizerAbstract[T]:
         self.problem = problem
         self.acceptance_criterion = acceptance_criterion
 
-    def optimize(self) -> Iterable[bool]:
+    def reset(self) -> None:
         """
-        Runs the VNS optimization process.
+        Initializes VNS optimization process and clear internal state.
+        """
+        raise NotImplementedError
+
+    def optimize(self) -> Iterable[bool | None]:
+        """
+        Runs the VNS optimization process. Yielding None in this case, allows to improve CLi experience to allow interruption in the middle of actual iteration.
         """
         raise NotImplementedError
 
@@ -133,8 +169,3 @@ class VNSOptimizerAbstract[T]:
         Returns the best solution found (for single-obj) or the Pareto front (for multi-obj).
         """
         raise NotImplementedError
-
-
-NeighborhoodOperator = Callable[
-    [Solution[T], VNSOptimizerAbstract[T]], Iterable[Solution[T]]
-]

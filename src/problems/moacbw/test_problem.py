@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from src.examples.moacbw.problem import MOACBWProblem, _MOACBWSolution
+from src.problems.moacbw.problem import MOACBWProblem, _MOACBWSolution
 
 
 @pytest.fixture

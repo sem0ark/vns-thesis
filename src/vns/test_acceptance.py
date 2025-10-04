@@ -2,9 +2,9 @@ import pytest
 
 from src.vns.acceptance import (
     AcceptBatch,
-    AcceptBeam,
     AcceptBeamSkewed,
     ComparisonResult,
+    ParetoFront,
     is_dominating_min,
 )
 
@@ -135,7 +135,7 @@ def test_accept_beam_acceptance_logic(
     Test the core logic of AcceptBeam.accept for various domination scenarios.
     """
 
-    criterion = AcceptBeam()
+    criterion = ParetoFront()
     criterion.front = [Solution(obj) for obj in initial_front_data]
     candidate = Solution(candidate_data)
     actual_acceptance = criterion.accept(candidate)
@@ -268,7 +268,7 @@ def test_accept_beam_skewed_logic(
 
 
 def test_clear_resets_fronts_beam():
-    criterion = AcceptBeam()
+    criterion = ParetoFront()
     criterion.accept(Solution((1.0,), 1))
 
     assert criterion.front

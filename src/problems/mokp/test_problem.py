@@ -1,7 +1,8 @@
 import numpy as np
 import pytest
 
-from src.examples.mokp.problem import MOKPProblem, _MOKPSolution
+from src.problems.mokp.problem import MOKPProblem, _MOKPSolution
+from src.vns.abstract import Solution
 
 
 @pytest.fixture
@@ -40,7 +41,7 @@ def example_problem_2d2d() -> MOKPProblem:
 def test_is_feasible_1d(
     example_problem_1d: MOKPProblem, solution_data: np.ndarray, is_feasible: bool
 ):
-    assert example_problem_1d.is_feasible(solution_data) == is_feasible
+    assert example_problem_1d.satisfies_constraints(Solution(solution_data, None)) == is_feasible
 
 
 @pytest.mark.parametrize(
@@ -72,7 +73,7 @@ def test_is_feasible_1d(
 def test_is_feasible_2d2d(
     example_problem_2d2d: MOKPProblem, solution_data: np.ndarray, is_feasible: bool
 ):
-    assert example_problem_2d2d.is_feasible(solution_data) == is_feasible
+    assert example_problem_2d2d.satisfies_constraints(Solution(solution_data, None)) == is_feasible
 
 
 @pytest.mark.parametrize(

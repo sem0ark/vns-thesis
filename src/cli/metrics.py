@@ -14,7 +14,7 @@ from pymoo.indicators.hv import HV
 from pymoo.indicators.igd import IGD
 
 from src.cli.shared import SavedRun
-from src.vns.acceptance import AcceptBeam
+from src.vns.acceptance import ParetoFront
 
 logger = logging.getLogger("cli/metrics.py")
 
@@ -66,7 +66,7 @@ def merge_runs_to_non_dominated_front(runs: list[SavedRun]) -> np.ndarray:
         A NumPy array representing the non-dominated reference front.
     """
 
-    reference_front = AcceptBeam()
+    reference_front = ParetoFront()
     for run in runs:
         for sol in run.solutions:
             reference_front.accept(cast(Any, sol))
