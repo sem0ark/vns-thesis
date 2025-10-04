@@ -88,7 +88,7 @@ def mm_to_json_graph(input_gz_path: Union[str, Path]) -> dict:
     output_data = {
         "metadata": {
             "objectives": 2,  # For this problem we have 2 objective goals
-            "weights": 0,  # but no actual constraints or weights
+            "constraints": 0,  # but no actual constraints or weights
         },
         "data": {"nodes": num_nodes, "graph": json_graph},
     }

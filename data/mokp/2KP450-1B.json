@@ -1,7 +1,7 @@
 {
     "metadata": {
         "objectives": 2,
-        "weights": 1
+        "constraints": 1
     },
     "data": {
         "capacity": 11532,

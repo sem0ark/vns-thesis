@@ -1,7 +1,7 @@
 {
     "metadata": {
         "objectives": 2,
-        "weights": 0
+        "constraints": 0
     },
     "data": {
         "nodes": 39,
