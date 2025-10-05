@@ -1,8 +1,7 @@
-from datetime import datetime
 import json
 import logging
 from collections import defaultdict
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Tuple, cast
 
@@ -16,6 +15,9 @@ from pymoo.indicators.igd import IGD
 
 from src.cli.shared import SavedRun
 from src.vns.acceptance import ParetoFront
+
+
+COMMON_METRICS_FOLDER = Path(__file__).parent.parent.parent / "metrics"
 
 
 def load_instance_data_json(file_path: Path) -> dict[str, Any]:
@@ -260,7 +262,7 @@ def calculate_metrics(
         print("Got a predefined reference front!")
         reference_front = np.array(predefined_front)
     else:
-        print("Merging all solutiosn to get a reference front...")
+        print("Merging all solutions to get a reference front...")
         reference_front = merge_runs_to_non_dominated_front(all_runs)
 
     if reference_front.size == 0:
@@ -445,7 +447,7 @@ def prepare_unary_metrics_table_data(
     instance_path: Path,
     all_runs_grouped: dict[str, list[SavedRun]],
     filtered_runs_grouped: dict[str, list[SavedRun]],
-) -> Tuple[Dict[str, Any], Tuple[List[str], List[List[Any]]]]:
+) -> tuple[dict[str, Metrics], tuple[list[str], list[list[Any]]]]:
     """
     Calculates metrics and prepares the unary metrics table data.
     Returns (metrics, (headers, table_data)).
@@ -493,7 +495,6 @@ def prepare_unary_metrics_table_data(
     return metrics, (headers, table_data)
 
 
-
 def display_unary_metrics(
     instance_path: Path,
     all_runs_grouped: dict[str, list[SavedRun]],
@@ -530,14 +531,26 @@ def display_unary_metrics(
             output_path=unary_export_path,
             sheet_name="Unary Metrics",
         )
-    
-    if export_to_common_json_format:
-        timestamp_str = datetime.now().isoformat().split('.')[0].replace(':', '-')
-        instance_name = instance_path.stem
 
-        json_output_path = instance_path.parent / f"{instance_name}_{timestamp_str}_unary_metrics.json"
+    if export_to_common_json_format:
+        COMMON_METRICS_FOLDER.mkdir(parents=True, exist_ok=True)
+        metadata = next(iter(filtered_runs_grouped.values()))[0].metadata
+        problem_name = metadata.problem_name
+        instance_name = metadata.instance_name
+        json_output_path = (
+            COMMON_METRICS_FOLDER / f"{problem_name}_{instance_name}_unary_metrics.json"
+        )
         with open(json_output_path, mode="w") as f:
-            json.dump(metrics, f)
+            json.dump({
+                "metadata": {
+                    "instance_name": instance_name,
+                    "problem_name": problem_name,
+                },
+                "metrics": {k: asdict(entry) for k, entry in metrics.items()},
+            }, f)
+        
+        print(f"Saved unary metrics file to {json_output_path}.")
+
 
 def display_metrics(
     instance_path: Path,
@@ -552,8 +565,14 @@ def display_metrics(
     Calculates and displays all metrics (unary and coverage),
     with an option to export them.
     """
-    if unary:
-        display_unary_metrics(instance_path, all_runs_grouped, filtered_runs_grouped, export_to_common_json_format, output_file)
+    if unary or export_to_common_json_format:
+        display_unary_metrics(
+            instance_path,
+            all_runs_grouped,
+            filtered_runs_grouped,
+            export_to_common_json_format,
+            output_file,
+        )
 
     if coverage:
         coverage_metrics = calculate_coverage_metrics(

@@ -59,6 +59,7 @@ class MOACBWProblem(Problem[np.ndarray]):
             num_objectives=2,
             num_variables=num_nodes,
             objective_names=["Antibandwidth", "Cutwidth"],
+            problem_name="MOACBW",
         )
 
         self.num_nodes = num_nodes

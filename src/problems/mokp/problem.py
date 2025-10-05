@@ -42,6 +42,7 @@ class MOKPProblem(Problem[np.ndarray]):
             num_variables=len(weights[0]),
             num_objectives=len(profits),
             num_constraints=len(weights),
+            problem_name="MOKP",
         )
 
         self.weights = np.array(weights, dtype=int)
@@ -108,7 +109,8 @@ class MOKPProblem(Problem[np.ndarray]):
         profits = configuration["data"]["objectives"]
         capacity = configuration["data"]["capacity"]
 
-        return MOKPProblem(weights, profits, capacity)
+        problem = MOKPProblem(weights, profits, capacity)
+        return problem
 
 
 class MOKPPymoo(ElementwiseProblem):

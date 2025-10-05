@@ -11,7 +11,7 @@ from pymoo.optimize import minimize
 from pymoo.termination.max_time import TimeBasedTermination
 from pymoo.util.nds.non_dominated_sorting import NonDominatedSorting
 
-from src.cli.cli_utils import CLI, InstanceRunner, RunConfig
+from src.cli.problem_cli import CLI, InstanceRunner, RunConfig
 from src.cli.shared import Metadata, SavedRun, SavedSolution
 from src.problems.mokp.problem import MOKPProblem, MOKPPymoo
 from src.problems.mokp.vns import add_remove_op, shake_add_remove, shake_swap, swap_op

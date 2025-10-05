@@ -3,9 +3,10 @@ import json
 import logging
 import shutil
 from collections import defaultdict
+from copy import deepcopy
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Callable, Iterable
+from typing import Any, Callable, Iterable, cast
 
 import click
 
@@ -14,6 +15,7 @@ from src.cli.metrics import display_metrics, plot_runs
 from src.cli.shared import Metadata, SavedRun, SavedSolution
 from src.cli.utils import NpEncoder, parse_time_string
 from src.vns.abstract import Problem
+from src.vns.acceptance import ParetoFront
 
 
 def setup_logging(level=logging.INFO):
@@ -34,6 +36,39 @@ def setup_logging(level=logging.INFO):
     root_logger.addHandler(console_handler)
 
 
+def _load_run(
+    file_path: Path,
+    problem_name: str,
+    instance_name: str,
+    include_data=False,
+) -> SavedRun:
+    with open(file_path, "r") as f:
+        data = json.load(f)
+        metadata = Metadata(**data["metadata"])
+        metadata.file_path = file_path
+
+        if (
+            metadata.instance_name.lower() != instance_name.lower()
+            or metadata.problem_name.lower() != problem_name.lower()
+        ):
+            raise ValueError(
+                f"Unexpected metadata for {file_path}: "
+                f"got ({metadata.problem_name}, {metadata.instance_name}), "
+                f"but expected ({problem_name}, {instance_name})"
+            )
+
+        solutions = [
+            SavedSolution(
+                objectives=s["objectives"],
+                data=s["data"] if include_data else None,
+            )
+            for s in data["solutions"]
+        ]
+        del data
+
+    return SavedRun(metadata=metadata, solutions=solutions)
+
+
 def _load_runs(
     root_folder: Path,
     problem_name: str,
@@ -43,47 +78,23 @@ def _load_runs(
     """
     Loads saved run files for a given instance, returning the latest version of each unique configuration.
     """
-    all_files = root_folder.glob(
-        f"{problem_name}_{instance_name}*.json", case_sensitive=False
+    all_files = list(
+        root_folder.glob(f"{problem_name}_{instance_name}*.json", case_sensitive=False)
     )
+    reference_front_file = (
+        root_folder / f"reference_front_{problem_name}_{instance_name}.json"
+    )
+    if reference_front_file.exists() and reference_front_file.is_file():
+        all_files.append(reference_front_file)
 
     runs_by_name = defaultdict(list)
     for file_path in all_files:
         try:
-            with open(file_path, "r") as f:
-                data = json.load(f)
-                metadata = Metadata(**data["metadata"])
-                metadata.file_path = file_path
-
-                if (
-                    metadata.instance_name.lower() != instance_name.lower()
-                    or metadata.problem_name.lower() != problem_name.lower()
-                ):
-                    click.echo(
-                        f"Unexpected metadata for {file_path}: "
-                        f"got ({metadata.problem_name}, {metadata.instance_name}), "
-                        f"but expected ({problem_name}, {instance_name})"
-                    )
-                    del data
-                    continue
-
-                solutions = [
-                    SavedSolution(
-                        objectives=s["objectives"],
-                        data=s["data"] if include_data else None,
-                    )
-                    for s in data["solutions"]
-                ]
-                del data
-
-            config_name = (
-                f"{metadata.name} v{metadata.version} {int(metadata.run_time_seconds)}s"
-            )
-            run = SavedRun(metadata=metadata, solutions=solutions)
-
+            run = _load_run(file_path, problem_name, instance_name, include_data)
+            config_name = f"{run.metadata.name} v{run.metadata.version} {int(run.metadata.run_time_seconds)}s"
             runs_by_name[config_name].append(run)
 
-        except (json.JSONDecodeError, KeyError, TypeError) as e:
+        except (json.JSONDecodeError, ValueError, KeyError, TypeError) as e:
             click.echo(f"Skipping malformed or incomplete run file {file_path}: {e}")
             continue
 
@@ -101,6 +112,9 @@ def _filter_runs(
     runs_filtered = defaultdict(list)
 
     for config_name, runs in runs_grouped.items():
+        if "REFERENCE-FRONT" in config_name: # HACK: skip prepared reference front run
+            continue
+
         if not filter_expression.is_match(config_name):
             continue
 
@@ -115,6 +129,25 @@ def _filter_runs(
         }
 
     return runs_filtered
+
+
+def _merge_runs_to_non_dominated_front(runs: list[SavedRun]) -> SavedRun:
+    """
+    Calculates the reference front by combining and sorting all non-dominated
+    solutions from all runs. It can be overridden by a predefined front.
+    """
+
+    reference_front = ParetoFront()
+    for run in runs:
+        for sol in run.solutions:
+            reference_front.accept(cast(Any, sol))
+
+    result = SavedRun(
+        metadata=deepcopy(runs[0].metadata),
+        solutions=cast(Any, reference_front.get_all_solutions()),
+    )
+
+    return result
 
 
 def common_options(f):
@@ -174,21 +207,129 @@ class CLI:
         """Place to store incorrect saved runs, which have wrong objective values or infeasible solutions."""
         self.quarantine_folder.mkdir(exist_ok=True, parents=True)
 
-        self.archive_folder = storage_folder / "incorrect"
+        self.archive_folder = storage_folder / "archive"
         """Place to store incorrect saved runs, which have wrong objective values or infeasible solutions."""
         self.archive_folder.mkdir(exist_ok=True, parents=True)
+
+    def _execute_archive_logic(
+        self,
+        instance: str,
+        filter_expression: FilterExpression,
+        move_runs: bool,
+    ):
+        """
+        Validates saved runs, moves valid ones to the archive folder,
+        and updates the instance's non-dominated reference front.
+        """
+        instance_paths = sorted(glob.glob(instance))
+        if not instance_paths:
+            click.echo(
+                f"Warning: No files found matching pattern '{instance}'. Exiting..."
+            )
+            return
+
+        for instance_path_str in instance_paths:
+            instance_path = Path(instance_path_str)
+            instance_name = instance_path.stem
+
+            reference_front_filename = (
+                f"reference_front_{self.problem_name}_{instance_name}.json"
+            )
+            reference_front_path = self.storage_folder / reference_front_filename
+
+            try:
+                problem_instance = self.problem_class.load(instance_path_str)
+            except Exception as e:
+                click.echo(f"Error loading problem instance {instance_path_str}: {e}")
+                continue
+
+            click.echo("-" * 50)
+            click.echo(
+                f"Archiving runs for problem: {self.problem_name} on instance: {instance_name}"
+            )
+
+            # Load ALL runs from storage (must include data for validation/archiving)
+            all_runs_grouped = _load_runs(
+                self.storage_folder, self.problem_name, instance_name, include_data=True
+            )
+
+            runs_to_archive_grouped = _filter_runs(all_runs_grouped, filter_expression)
+
+            if not runs_to_archive_grouped:
+                click.echo(
+                    f"No runs matched the filters '{filter_expression}' for archiving."
+                )
+                continue
+
+            valid_runs_for_merge = []
+
+            for config_name, runs in runs_to_archive_grouped.items():
+                for run in runs:
+                    file_path = run.metadata.file_path
+                    if file_path is None:
+                        click.echo(
+                            f"Error: Could not determine file path for run {config_name}. Skipping."
+                        )
+                        continue
+
+                    if self._validate_run(run, problem_instance):
+                        valid_runs_for_merge.append(run)
+
+                        if move_runs:
+                            destination_path = self.archive_folder / file_path.name
+                            shutil.move(file_path, destination_path)
+                            run.metadata.file_path = destination_path
+                            click.echo(f"Moved {run.metadata.instance_name} to {destination_path}")
+
+            if not valid_runs_for_merge:
+                click.echo("Warning: no available valid runs for merge. Exiting.")
+                return
+
+            reference_run = valid_runs_for_merge[0]
+            if reference_front_path.exists():
+                try:
+                    reference_run = _load_run(
+                        reference_front_path,
+                        self.problem_name,
+                        instance_name,
+                        include_data=True,
+                    )
+                    click.echo(
+                        f"Loaded {len(reference_run.solutions)} solutions from existing reference front."
+                    )
+                except (json.JSONDecodeError, KeyError) as e:
+                    click.echo(
+                        f"Warning: Could not load existing reference front at {reference_front_path}: {e}"
+                    )
+
+            reference_run = _merge_runs_to_non_dominated_front(
+                valid_runs_for_merge + [reference_run]
+            )
+            reference_run.metadata.name = "REFERENCE-FRONT"
+            reference_run.metadata.version = 0
+            reference_run.metadata.run_time_seconds = 0
+
+            with open(reference_front_path, "w") as f:
+                json.dump(asdict(reference_run), f, cls=NpEncoder)
+
+            click.echo(
+                f"Updated reference front saved to: {reference_front_path} ({len(reference_run.solutions)} total solutions)."
+            )
+            click.echo("-" * 50)
 
     def _validate_run(
         self,
         run: SavedRun,
         problem_instance: Problem,
-        file_path: Path,
     ) -> bool:
         """
         Validates every solution in a run. Moves the file to quarantine if any solution fails.
         Returns True if the run is valid, False otherwise.
         """
         is_valid = True
+        file_path = run.metadata.file_path
+        if not file_path:
+            raise ValueError(f"Missing file_path for run {run.metadata}")
 
         for i, saved_solution in enumerate(run.solutions):
             if not saved_solution.data:
@@ -301,7 +442,7 @@ class CLI:
                         continue
 
                     click.echo(f"-> Checking run: {file_path.name}")
-                    if self._validate_run(run, problem_instance, file_path):
+                    if self._validate_run(run, problem_instance):
                         validated_count += 1
                     else:
                         quarantined_count += 1
@@ -364,13 +505,14 @@ class CLI:
                     / f"{self.problem_name}_{instance_name} {variant_name} "
                     f"{timestamp.split('.')[0].replace(':', '-')}.json"
                 )
+                results.metadata.file_path = destination_path
 
                 with open(destination_path, "w") as f:
                     json.dump(asdict(results), f, cls=NpEncoder)
 
                 print(f"Optimization run data saved to: {destination_path}")
 
-                self._validate_run(results, problem_instance, destination_path)
+                self._validate_run(results, problem_instance)
 
     def _execute_plot_logic(
         self,
@@ -438,7 +580,13 @@ class CLI:
 
             click.echo("Displaying raw metrics...")
             display_metrics(
-                instance_path, all_runs, runs_to_show, unary, coverage, export_to_json, output_file
+                instance_path,
+                all_runs,
+                runs_to_show,
+                unary,
+                coverage,
+                export_to_json,
+                output_file,
             )
 
     def run(self) -> None:
@@ -561,6 +709,25 @@ class CLI:
             Example: script.py validate -i 'data/*.json' -f 'vns,k1 or nsga2'
             """
             self._execute_validate_logic(instance, filter_string)
+
+        @cli.command(
+            name="archive",
+            help="Validate and update merged reference front.",
+        )
+        @common_options
+        @click.option(
+            "--move",
+            is_flag=True,
+            help="Additionally move all matched files into archive folder.",
+        )
+        def archive_command(instance: str, filter_string: FilterExpression, move: bool):
+            """
+            Validates saved solutions. Valid runs are moved to the archive folder.
+            Solutions from the archived runs are merged into a single reference front file.
+
+            Example: script.py archive -i 'data/*.json' -f 'vns,k1 or nsga2'
+            """
+            self._execute_archive_logic(instance, filter_string, move)
 
         setup_logging()
         cli()

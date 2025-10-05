@@ -79,6 +79,9 @@ class FilterExpression:
 
         return self.root.is_match(config_tags)
 
+    def __str__(self) -> str:
+        return f"Filter({self.initial_string.lower()})"
+
     def __repr__(self) -> str:
         return f"Filter({self.initial_string.lower()})"
 

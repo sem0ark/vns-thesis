@@ -366,14 +366,15 @@ def test_tokenize_and_parse_not_malformed_errors(expression):
         _tokenize_and_parse(expression)
 
 
-@pytest.mark.xfail
 @pytest.mark.parametrize(
     "expression",
     [
-        pytest.param("not not vns"),  # TODO: allow not not parsing logic
+        pytest.param("not not vns and not not vns"),
+        pytest.param("not not not vns"),
+        pytest.param("not not not not vns"),
     ],
 )
-def test_tokenize_and_parse_expressions(expression):
+def test_tokenize_and_parse_expressions_with_nots(expression):
     """Test parsing failures when NOT is misused."""
     # Note: These tests depend on the ValueError checks inside _parse_expression.
     with pytest.raises(ValueError):
