@@ -307,39 +307,42 @@ def test_tokenize_and_parse_simple_not():
     """Test full parsing for a simple NOT expression."""
     # Expression: "not vns"
     result = _tokenize_and_parse("not vns")
-    
+
     # Expected: NotNode(TagNode('vns'))
     assert isinstance(result, NotNode)
     assert isinstance(result.child, TagNode)
     assert result.child.tag == "vns"
+
 
 def test_tokenize_and_parse_not_and():
     """Test NOT applied to an AND expression (highest precedence)."""
     # Expression: "not vns and 60s" -> (NOT vns) AND 60s
     # NOT has higher precedence than AND, so it should apply only to the immediate tag.
     result = _tokenize_and_parse("not vns and 60s")
-    
+
     # Expected: AndNode([NotNode(TagNode('vns')), TagNode('60s')])
     assert isinstance(result, AndNode)
     assert isinstance(result.children[0], NotNode)
     assert result.children[0].child.tag == "vns"
     assert result.children[1].tag == "60s"
 
+
 def test_tokenize_and_parse_not_in_parentheses():
     """Test NOT applied within parentheses to change precedence."""
     # Expression: "not (vns and 60s)"
     result = _tokenize_and_parse("not (vns and 60s)")
-    
+
     # Expected: NotNode(AndNode([TagNode('vns'), TagNode('60s')]))
     assert isinstance(result, NotNode)
     assert isinstance(result.child, AndNode)
     assert result.child.children[0].tag == "vns"
 
+
 def test_tokenize_and_parse_not_case_insensitivity():
     """Test NOT operator is case-insensitive."""
     # Expression: "NOT tabu OR nOt 120s"
     result = _tokenize_and_parse("NOT tabu OR nOt 120s")
-    
+
     # Expected: OrNode([NotNode(TagNode('tabu')), NotNode(TagNode('120s'))])
     assert isinstance(result, OrNode)
     assert isinstance(result.children[0], NotNode)
@@ -347,12 +350,13 @@ def test_tokenize_and_parse_not_case_insensitivity():
     assert result.children[0].child.tag == "tabu"
     assert result.children[1].child.tag == "120s"
 
+
 @pytest.mark.parametrize(
     "expression",
     [
-        pytest.param("not"),              # Missing operand
-        pytest.param("and not vns"),      # Operator sequence (and followed by not)
-        pytest.param("not and vns"),      # Operator sequence (not followed by and)
+        pytest.param("not"),  # Missing operand
+        pytest.param("and not vns"),  # Operator sequence (and followed by not)
+        pytest.param("not and vns"),  # Operator sequence (not followed by and)
     ],
 )
 def test_tokenize_and_parse_not_malformed_errors(expression):
@@ -361,11 +365,12 @@ def test_tokenize_and_parse_not_malformed_errors(expression):
     with pytest.raises(ValueError):
         _tokenize_and_parse(expression)
 
+
 @pytest.mark.xfail
 @pytest.mark.parametrize(
     "expression",
     [
-        pytest.param("not not vns"), # TODO: allow not not parsing logic
+        pytest.param("not not vns"),  # TODO: allow not not parsing logic
     ],
 )
 def test_tokenize_and_parse_expressions(expression):

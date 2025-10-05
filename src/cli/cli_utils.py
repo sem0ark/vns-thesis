@@ -1,10 +1,10 @@
 import glob
 import json
 import logging
+import shutil
 from collections import defaultdict
 from dataclasses import asdict, dataclass
 from pathlib import Path
-import shutil
 from typing import Callable, Iterable
 
 import click
@@ -12,7 +12,7 @@ import click
 from src.cli.filter_param import ClickFilterExpression, FilterExpression
 from src.cli.metrics import display_metrics, plot_runs
 from src.cli.shared import Metadata, SavedRun, SavedSolution
-from src.cli.utils import parse_time_string
+from src.cli.utils import NpEncoder, parse_time_string
 from src.vns.abstract import Problem
 
 
@@ -178,7 +178,6 @@ class CLI:
         """Place to store incorrect saved runs, which have wrong objective values or infeasible solutions."""
         self.archive_folder.mkdir(exist_ok=True, parents=True)
 
-
     def _validate_run(
         self,
         run: SavedRun,
@@ -190,7 +189,7 @@ class CLI:
         Returns True if the run is valid, False otherwise.
         """
         is_valid = True
-        
+
         for i, saved_solution in enumerate(run.solutions):
             if not saved_solution.data:
                 click.echo(
@@ -210,12 +209,12 @@ class CLI:
             try:
                 calculated_objectives = problem_instance.evaluate_solution(solution)
             except Exception as e:
-                 click.echo(
+                click.echo(
                     f"Validation FAILED: Solution #{i} in {file_path.name} failed objective calculation: {e}"
                 )
-                 is_valid = False
-                 break
-            
+                is_valid = False
+                break
+
             if len(calculated_objectives) != len(saved_solution.objectives):
                 click.echo(
                     f"Validation FAILED: Solution #{i} in {file_path.name} has objective count mismatch "
@@ -223,8 +222,10 @@ class CLI:
                 )
                 is_valid = False
                 break
-                
-            for saved_obj, calc_obj in zip(saved_solution.objectives, calculated_objectives):
+
+            for saved_obj, calc_obj in zip(
+                saved_solution.objectives, calculated_objectives
+            ):
                 if abs(saved_obj - calc_obj) > 1e-6:
                     click.echo(
                         f"Validation FAILED: Solution #{i} in {file_path.name} has objective mismatch. "
@@ -232,7 +233,7 @@ class CLI:
                     )
                     is_valid = False
                     break
-            
+
             if not is_valid:
                 break
 
@@ -268,7 +269,7 @@ class CLI:
             except Exception as e:
                 click.echo(f"Error loading problem instance {instance_path_str}: {e}")
                 continue
-                
+
             click.echo("-" * 50)
             click.echo(
                 f"Validating runs for problem: {self.problem_name} on instance: {instance_name}"
@@ -278,21 +279,25 @@ class CLI:
             all_runs_grouped = _load_runs(
                 self.storage_folder, self.problem_name, instance_name, include_data=True
             )
-            
+
             runs_to_validate_grouped = _filter_runs(all_runs_grouped, filter_expression)
-            
+
             if not runs_to_validate_grouped:
-                click.echo(f"No runs matched the filters '{filter_expression}' for validation.")
+                click.echo(
+                    f"No runs matched the filters '{filter_expression}' for validation."
+                )
                 continue
 
             validated_count = 0
             quarantined_count = 0
-            
+
             for config_name, runs in runs_to_validate_grouped.items():
                 for run in runs:
                     file_path = run.metadata.file_path
                     if file_path is None:
-                        click.echo(f"Error: Could not determine file path for run {config_name}. Skipping validation.")
+                        click.echo(
+                            f"Error: Could not determine file path for run {config_name}. Skipping validation."
+                        )
                         continue
 
                     click.echo(f"-> Checking run: {file_path.name}")
@@ -307,7 +312,9 @@ class CLI:
             click.echo(f"  Invalid/Quarantined runs: {quarantined_count}")
             click.echo("-" * 50)
 
-    def _execute_run_logic(self, instance: str, max_time: str, filter_expression: FilterExpression):
+    def _execute_run_logic(
+        self, instance: str, max_time: str, filter_expression: FilterExpression
+    ):
         """Contains the logic for running optimizations and saving results."""
         run_time_seconds = parse_time_string(max_time)
 
@@ -359,7 +366,7 @@ class CLI:
                 )
 
                 with open(destination_path, "w") as f:
-                    json.dump(asdict(results), f)
+                    json.dump(asdict(results), f, cls=NpEncoder)
 
                 print(f"Optimization run data saved to: {destination_path}")
 
@@ -396,11 +403,12 @@ class CLI:
             plot_lines=lines,
         )
 
-    def _execute_show_logic(
+    def _execute_metrics_logic(
         self,
         instance: str,
         unary: bool,
         coverage: bool,
+        export_to_json: bool,
         filter_expression: FilterExpression,
         output_file: Path | None,
     ):
@@ -430,7 +438,7 @@ class CLI:
 
             click.echo("Displaying raw metrics...")
             display_metrics(
-                instance_path, all_runs, runs_to_show, unary, coverage, output_file
+                instance_path, all_runs, runs_to_show, unary, coverage, export_to_json, output_file
             )
 
     def run(self) -> None:
@@ -521,9 +529,10 @@ class CLI:
         )
         def metrics_command(
             instance: str,
-            filter_expression: FilterExpression,
+            filter_string: FilterExpression,
             unary: bool,
             coverage: bool,
+            export: bool,
             output_file: Path | None,
         ):
             """
@@ -531,11 +540,12 @@ class CLI:
 
             Example: script.py metrics -i 'data/instance1.json' -f 'vns_k1,30s' --plot
             """
-            self._execute_show_logic(
+            self._execute_metrics_logic(
                 instance,
                 unary,
                 coverage,
-                filter_expression,
+                export,
+                filter_string,
                 output_file,
             )
 
@@ -547,11 +557,10 @@ class CLI:
             """
             Validates saved solutions against the problem's feasibility and objective functions.
             Invalid run files are moved to the quarantine folder.
-            
+
             Example: script.py validate -i 'data/*.json' -f 'vns,k1 or nsga2'
             """
             self._execute_validate_logic(instance, filter_string)
-
 
         setup_logging()
         cli()

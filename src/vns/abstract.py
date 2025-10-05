@@ -76,16 +76,22 @@ class Solution[T]:
     """Link to the problem instance."""
 
     def __hash__(self) -> int:
-        return self.get_hash()
+        return self._hash
 
     def __eq__(self, other) -> bool:
         if isinstance(other, self.__class__):
-            return self.equals(other)
+            return self._equals(other)
         return False
 
     @cached_property
     def objectives(self) -> tuple[float, ...]:
         return self.problem.evaluate_solution(self)
+
+    @cached_property
+    def _hash(self) -> int:
+        """Returns a hash of a solution to use for comparison.
+        Default implementation gives a hash of solution's objectives."""
+        return self.get_hash()
 
     def new(self, data: Any) -> Self:
         return self.__class__(data, self.problem)
@@ -95,13 +101,11 @@ class Solution[T]:
         Default implementation gives a hash of solution's objectives."""
         return hash(self.objectives)
 
-    def equals(self, other: Self) -> bool:
+    def _equals(self, other: Self) -> bool:
         """Checks whether solutions are the same.
         Default implementation considers solutions as equal if their objective value is the same.
         """
-        return all(
-            abs(o1 - o2) < 1e-6 for o1, o2 in zip(self.objectives, other.objectives)
-        )
+        return self._hash == other._hash
 
     def to_json_serializable(self) -> Any:
         return self.data

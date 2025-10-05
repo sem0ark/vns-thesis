@@ -1,3 +1,4 @@
+from datetime import datetime
 import json
 import logging
 from collections import defaultdict
@@ -492,12 +493,59 @@ def prepare_unary_metrics_table_data(
     return metrics, (headers, table_data)
 
 
+
+def display_unary_metrics(
+    instance_path: Path,
+    all_runs_grouped: dict[str, list[SavedRun]],
+    filtered_runs_grouped: dict[str, list[SavedRun]],
+    export_to_common_json_format: bool,
+    output_file: Path | None = None,
+):
+    metrics, (unary_headers, unary_table_data) = prepare_unary_metrics_table_data(
+        instance_path, all_runs_grouped, filtered_runs_grouped
+    )
+
+    print("--- Unary Metrics Table ---")
+    print(
+        tabulate.tabulate(
+            unary_table_data, headers=unary_headers, tablefmt="fancy_grid"
+        )
+    )
+
+    if output_file:
+        base_name = output_file.stem
+        suffix = output_file.suffix
+
+        unary_export_path = output_file.with_name(f"{base_name}_unary{suffix}")
+        export_table(
+            table_data=[
+                [row[0]]
+                + [
+                    float(val) if val != "N/A" and isinstance(val, str) else val
+                    for val in row[1:]
+                ]
+                for row in unary_table_data  # Use raw float values for export
+            ],
+            headers=unary_headers,
+            output_path=unary_export_path,
+            sheet_name="Unary Metrics",
+        )
+    
+    if export_to_common_json_format:
+        timestamp_str = datetime.now().isoformat().split('.')[0].replace(':', '-')
+        instance_name = instance_path.stem
+
+        json_output_path = instance_path.parent / f"{instance_name}_{timestamp_str}_unary_metrics.json"
+        with open(json_output_path, mode="w") as f:
+            json.dump(metrics, f)
+
 def display_metrics(
     instance_path: Path,
     all_runs_grouped: dict[str, list[SavedRun]],
     filtered_runs_grouped: dict[str, list[SavedRun]],
     unary: bool,
     coverage: bool,
+    export_to_common_json_format: bool,
     output_file: Path | None = None,
 ):
     """
@@ -505,35 +553,7 @@ def display_metrics(
     with an option to export them.
     """
     if unary:
-        _, (unary_headers, unary_table_data) = prepare_unary_metrics_table_data(
-            instance_path, all_runs_grouped, filtered_runs_grouped
-        )
-
-        print("--- Unary Metrics Table ---")
-        print(
-            tabulate.tabulate(
-                unary_table_data, headers=unary_headers, tablefmt="fancy_grid"
-            )
-        )
-
-        if output_file:
-            base_name = output_file.stem
-            suffix = output_file.suffix
-
-            unary_export_path = output_file.with_name(f"{base_name}_unary{suffix}")
-            export_table(
-                table_data=[
-                    [row[0]]
-                    + [
-                        float(val) if val != "N/A" and isinstance(val, str) else val
-                        for val in row[1:]
-                    ]
-                    for row in unary_table_data  # Use raw float values for export
-                ],
-                headers=unary_headers,
-                output_path=unary_export_path,
-                sheet_name="Unary Metrics",
-            )
+        display_unary_metrics(instance_path, all_runs_grouped, filtered_runs_grouped, export_to_common_json_format, output_file)
 
     if coverage:
         coverage_metrics = calculate_coverage_metrics(

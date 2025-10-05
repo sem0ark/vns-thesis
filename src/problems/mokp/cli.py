@@ -109,7 +109,9 @@ class VNSInstanceRunner(InstanceRunner):
             elif "skewed" in acc_name:
                 common_name = "SVNS"
 
-            config_name = f"vns {common_name} {acc_name} {search_name} k{k} {shake_name}"
+            config_name = (
+                f"vns {common_name} {acc_name} {search_name} k{k} {shake_name}"
+            )
 
             optimizer = ElementwiseVNSOptimizer(
                 problem=self.problem,
@@ -204,8 +206,13 @@ class PymooInstanceRunner(InstanceRunner):
             final_solutions_data_entries = solution_data[non_dominated_indices]
 
             solutions_data = [
-                SavedSolution(cast(np.ndarray, objectives).tolist(), cast(np.ndarray, data).tolist())
-                for objectives, data in zip(final_solutions_objectives, final_solutions_data_entries)
+                SavedSolution(
+                    cast(np.ndarray, objectives).tolist(),
+                    cast(np.ndarray, data).tolist(),
+                )
+                for objectives, data in zip(
+                    final_solutions_objectives, final_solutions_data_entries
+                )
             ]
 
             return SavedRun(

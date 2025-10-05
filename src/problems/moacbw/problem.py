@@ -17,9 +17,6 @@ class _MOACBWSolution(Solution[np.ndarray]):
     The position in the array determines the position of a given node (0 to N-1).
     """
 
-    def equals(self, other: Solution[np.ndarray]) -> bool:
-        return hash(self) == hash(other)
-
     def get_hash(self) -> int:
         h = xxhash.xxh64()
         h.update(self.data.tobytes())
@@ -57,7 +54,12 @@ class MOACBWProblem(Problem[np.ndarray]):
         # Adjacency list: [(u, [v1, v2, ...]), ...] where u and v are 0-based integers.
         graph_adj_list: list[tuple[int, list[int]]],
     ):
-        super().__init__(num_constraints=0, num_objectives=2, num_variables=num_nodes)
+        super().__init__(
+            num_constraints=0,
+            num_objectives=2,
+            num_variables=num_nodes,
+            objective_names=["Antibandwidth", "Cutwidth"],
+        )
 
         self.num_nodes = num_nodes
         self.num_objectives = 2
@@ -181,6 +183,9 @@ class MOACBWProblem(Problem[np.ndarray]):
 
     def satisfies_constraints(self, solution: MOACBWSolution) -> bool:
         return True
+
+    def load_solution(self, saved_solution_data) -> MOACBWSolution:
+        return _MOACBWSolution.from_json_serializable(self, saved_solution_data)
 
     @staticmethod
     def calculate_solution_distance(

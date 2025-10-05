@@ -1,4 +1,7 @@
+import json
 import re
+
+import numpy as np
 
 
 def parse_time_string(time_str: str) -> int:
@@ -21,3 +24,16 @@ def parse_time_string(time_str: str) -> int:
         "m": 60,
         "h": 3600,
     }[unit] * value
+
+
+class NpEncoder(json.JSONEncoder):
+    def default(self, o):
+        if isinstance(o, (np.bool_, np.bool)):
+            return bool(o)
+        if isinstance(o, np.integer):
+            return int(o)
+        if isinstance(o, np.floating):
+            return float(o)
+        if isinstance(o, np.ndarray):
+            return o.tolist()
+        return super(NpEncoder, self).default(o)

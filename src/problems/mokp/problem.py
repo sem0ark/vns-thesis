@@ -12,9 +12,6 @@ type MOKPSolution = Solution[np.ndarray]
 
 
 class _MOKPSolution(Solution[np.ndarray]):
-    def equals(self, other: Solution[np.ndarray]) -> bool:
-        return hash(self) == hash(other)
-
     def get_hash(self) -> int:
         h = xxhash.xxh64()
         h.update(self.data.tobytes())
@@ -28,7 +25,9 @@ class _MOKPSolution(Solution[np.ndarray]):
         problem: Problem[np.ndarray], serialized_data: list[int]
     ) -> MOKPSolution:
         if not isinstance(serialized_data, list):
-            raise ValueError("Expected saved_solution_data to be list of ints (0 or 1)!")
+            raise ValueError(
+                "Expected saved_solution_data to be list of ints (0 or 1)!"
+            )
         return _MOKPSolution(np.array(serialized_data), problem)
 
 

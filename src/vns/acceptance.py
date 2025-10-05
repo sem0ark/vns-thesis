@@ -55,6 +55,23 @@ def compare_solutions_better(
     return is_dominating_min(new_solution.objectives, current_solution.objectives)
 
 
+def make_skewed_comparator(
+    alpha: list[float], distance_metric: Callable[[Solution, Solution], float]
+):
+    def compare_solutions_better_skewed(
+        new_solution: Solution, current_solution: Solution
+    ) -> ComparisonResult:
+        """Custom comparison: check if new_solution with skewed objectives dominates current_solution."""
+        distance = distance_metric(new_solution, current_solution)
+        skewed_objectives = tuple(
+            obj_i - alpha[i] * distance
+            for i, obj_i in enumerate(new_solution.objectives)
+        )
+        return is_dominating_min(skewed_objectives, current_solution.objectives)
+
+    return compare_solutions_better_skewed
+
+
 class ParetoFront(AcceptanceCriterion):
     """
     Maintains an archive of non-dominated solutions (Pareto front).
@@ -122,70 +139,6 @@ class ParetoFront(AcceptanceCriterion):
         self.comparison_cache.clear()
 
 
-class AcceptBeamSkewed(AcceptanceCriterion):
-    """
-    Skewed Acceptance Criterion for SVNS.
-    Minimization acceptance criterion with beam search like behavior implementing Skewed acceptance.
-    Maintains an archive of non-dominated solutions (Pareto front).
-
-    This acceptance criterion proposes iteration through the current front to be:
-    - Instead of treating front as a single entity requiring a single iteration, it treats it as a buffer of solutions.
-    - Each time it is required to take the next solution to be processed, it takes a random solution from pareto front or takes out a skewed-accepted solution from the buffer.
-    - In case it accepts a solution, it updates the current front.
-    - In case it rejects a solution, but it is quite different from solutions in the front, solution is added to the "buffer", these solutions are not present in the front, but will be selected during iterations.
-    - In case it completely rejects a solution, solution is discarded.
-    """
-
-    def __init__(
-        self,
-        alpha: list[float],
-        distance_metric: Callable[[Solution, Solution], float],
-    ):
-        """Init.
-
-        Args:
-            alpha (list[float]): List of alpha weights per objective.
-            distance_metric ((Solution, Solution) -> float): Gives the difference distance between two solutions.
-            buffer_size (int | None): Limit the number of saved skewed accepted solutions to track.
-        """
-        super().__init__()
-        self.alpha = alpha
-
-        def compare_solutions_better_skewed(
-            new_solution: Solution, current_solution: Solution
-        ) -> ComparisonResult:
-            distance = distance_metric(new_solution, current_solution)
-            skewed_objectives = tuple(
-                obj_i - alpha[i] * distance
-                for i, obj_i in enumerate(new_solution.objectives)
-            )
-            return is_dominating_min(skewed_objectives, current_solution.objectives)
-
-        self.true_front = ParetoFront()
-        self.skewed_front = ParetoFront(
-            comparison_function=compare_solutions_better_skewed
-        )
-
-    def accept(self, candidate: Solution) -> bool:
-        if len(candidate.objectives) != len(self.alpha):
-            raise ValueError(
-                f"Expected to have the same number of alpha weights ({len(self.alpha)}) as the number of objectives {len(candidate.objectives)}."
-            )
-
-        self.true_front.accept(candidate)
-        return self.skewed_front.accept(candidate)
-
-    def get_one_current_solution(self) -> Solution:
-        return self.skewed_front.get_one_current_solution()
-
-    def get_all_solutions(self) -> list[Solution]:
-        return self.true_front.get_all_solutions()
-
-    def clear(self):
-        self.true_front.clear()
-        self.skewed_front.clear()
-
-
 class AcceptBatch(AcceptanceCriterion):
     """
     Maintains an archive of non-dominated solutions (Pareto front).
@@ -239,60 +192,89 @@ class AcceptBatch(AcceptanceCriterion):
         self.true_front.clear()
 
 
-class AcceptBatchSkewed(AcceptanceCriterion):
+class AcceptBeamWrapped(AcceptanceCriterion):
     """
-    Skewed Acceptance Criterion for SVNS.
-    Maintains an archive of non-dominated solutions (Pareto front).
+    Acceptance Criterion wrapping two ParetoFront instances to support custom acceptance logic.
 
-    This acceptance criterion proposes iteration through the current front to be:
-    - Front acts as a single entity requiring a iteration before moving to the next front.
-    - Each time it is required to take the next solution to be processed, it take the next not processed solution from pareto front and if exhausted take a skewed accepted solution.
-    - In case it accepts a solution, it updates the upcoming front.
-    - In case it rejects a solution, but it is quite different from solutions in the front, solution is added to the "skewed front", these solutions are not present in the front, but will be selected during iterations.
-    - In case it completely rejects a solution, solution is discarded.
-    - After iteration through the current front and skewed front is done, it switches to the upcoming front being a union of accepted solutions and non-dominated solutions from the previous front.
+    This criterion maintains a standard non-dominated archive (`true_front`) using default
+    Pareto comparison, and a second archive (`custom_front`) using a user-provided
+    `comparison_function`. This separation enables variants of Variable Neighborhood Search
+    (VNS), such as Variable Formulation Search (VFS) or specialized VNS types, by using
+    a relaxed or alternative dominance check for solution acceptance and selection.
+
+    The "beam-like" behavior stems from `get_one_current_solution` selecting a solution
+    from the custom-comparison archive.
     """
 
     def __init__(
         self,
-        alpha: list[float],
-        distance_metric: Callable[[Solution, Solution], float],
+        comparison_function: Callable[[Solution, Solution], ComparisonResult],
     ):
-        super().__init__()
-        self.alpha = alpha
+        """Init.
 
-        def compare_solutions_better_skewed(
-            new_solution: Solution, current_solution: Solution
-        ) -> ComparisonResult:
-            distance = distance_metric(new_solution, current_solution)
-            skewed_objectives = tuple(
-                obj_i - alpha[i] * distance
-                for i, obj_i in enumerate(new_solution.objectives)
-            )
-            return is_dominating_min(skewed_objectives, current_solution.objectives)
-            # if (
-            #     is_dominating_min(skewed_objectives, current_solution.objectives)
-            #     != ComparisonResult.WORSE
-            # ):
-            #     return ComparisonResult.NON_DOMINATED
-            # return is_dominating_min(
-            #     new_solution.objectives, current_solution.objectives
-            # )
+        Args:
+            comparison_function ((candidate, solution) -> ComparisonResult]):
+                The custom comparison function used by the internal Pareto front
+                for acceptance and selection (e.g., for VFS or relaxed dominance).
+        """
+        super().__init__()
+        self.true_front = ParetoFront()
+        self.custom_front = ParetoFront(comparison_function=comparison_function)
+
+    def accept(self, candidate: Solution) -> bool:
+        self.true_front.accept(candidate)
+        return self.custom_front.accept(candidate)
+
+    def get_one_current_solution(self) -> Solution:
+        return self.custom_front.get_one_current_solution()
+
+    def get_all_solutions(self) -> list[Solution]:
+        return self.true_front.get_all_solutions()
+
+    def clear(self):
+        self.true_front.clear()
+        self.custom_front.clear()
+
+
+class AcceptBatchWrapped(AcceptanceCriterion):
+    """
+    Acceptance Criterion wrapping two ParetoFront instances and implementing a batch-based
+    iteration strategy.
+
+    This criterion maintains a standard non-dominated archive (`true_front`) and a custom-comparison
+    archive (`actual`) to support VNS variants like Variable Formulation Search (VFS).
+
+    It operates in batches (or "stages"):
+    - New solutions are accepted into `actual`.
+    - Iteration (`get_one_current_solution`) uses a **snapshot** of the solutions from `actual`.
+    - Solutions generated from the current batch are compared against the live `actual` front, but
+      the solutions selected for neighborhood exploration come only from the snapshot.
+    - When the snapshot is exhausted, a new snapshot of the updated `actual` front is taken,
+      beginning the next batch iteration.
+    """
+
+    def __init__(
+        self,
+        comparison_function: Callable[[Solution, Solution], ComparisonResult],
+    ):
+        """Init.
+
+        Args:
+            comparison_function ((candidate, solution) -> ComparisonResult]):
+                The custom comparison function used by the internal Pareto front
+                (`actual`) for acceptance and snapshot creation.
+        """
+        super().__init__()
 
         # Holds the live, updated non-dominated solutions
         self.true_front = ParetoFront()
-        self.skewed_front = ParetoFront(
-            comparison_function=compare_solutions_better_skewed
-        )
+        self.custom_front = ParetoFront(comparison_function=comparison_function)
         # Holds the solutions to be iterated over in the current batch
         self.front_snapshot: list[Solution] = []
 
     def accept(self, candidate: Solution) -> bool:
         self.true_front.accept(candidate)
-        accepted = self.skewed_front.accept(candidate)
-
-        if not self.front_snapshot:
-            self._take_snapshot()
+        accepted = self.custom_front.accept(candidate)
 
         return accepted
 
@@ -306,19 +288,90 @@ class AcceptBatchSkewed(AcceptanceCriterion):
         if self.front_snapshot:
             return self.front_snapshot.pop()
 
-        raise ValueError("Archive and skewed buffer are empty.")
+        raise ValueError("Archive is empty.")
 
     def _take_snapshot(self):
-        current_solutions = self.skewed_front.get_all_solutions()
-        for i, solution in enumerate(current_solutions):
-            if i == len(self.front_snapshot):
-                self.front_snapshot.append(solution)
-            else:
-                self.front_snapshot[i] = solution
-
-            del self.front_snapshot[len(current_solutions) :]
+        self.front_snapshot = list(self.custom_front.get_all_solutions())
 
     def clear(self):
         self.true_front.clear()
-        self.skewed_front.clear()
+        self.custom_front.clear()
         self.front_snapshot.clear()
+
+
+class AcceptBeamSkewed(AcceptBeamWrapped):
+    """
+    Skewed Acceptance Criterion for Skewed Variable Neighborhood Search (SVNS) using a
+    beam-like selection strategy.
+
+    This class specializes AcceptBeamWrapped by providing a custom comparison function
+    that implements the **Skewed Acceptance** mechanism. A candidate solution is accepted
+    into the internal front (custom_front) if its **skewed objective vector** dominates
+    an existing solution.
+
+    The skewed objective value f'_i(x) for objective i is calculated using the following penalty-based formula:
+    f'_i(x) = f_i(x) - alpha_i * distance(x, y)
+
+    Where:
+    - f_i(x) is the true objective value.
+    - alpha_i is the weight parameter for objective i.
+    - distance(x, y) is the difference in solution space between the candidate x
+      and an existing solution y in the front.
+    
+    The resulting structure facilitates a randomized, non-exhaustive exploration of the
+    custom-comparison front (the "beam").
+    """
+
+    def __init__(
+        self,
+        alpha: list[float],
+        distance_metric: Callable[[Solution, Solution], float],
+    ):
+        """Init.
+
+        Args:
+            alpha (list[float]): List of alpha weights per objective (alpha_i). 
+                This parameter controls the skewing/penalty magnitude.
+            distance_metric ((Solution, Solution) -> float): Gives the difference 
+                distance between two solutions in the solution space.
+        """
+        super().__init__(make_skewed_comparator(alpha, distance_metric))
+
+
+class AcceptBatchSkewed(AcceptBatchWrapped):
+    """
+    Skewed Acceptance Criterion for Skewed Variable Neighborhood Search (SVNS) using a
+    batch-based iteration strategy.
+
+    This class specializes AcceptBatchWrapped by providing a custom comparison function
+    that implements the **Skewed Acceptance** mechanism. A candidate solution is accepted
+    into the internal front (actual) if its **skewed objective vector** dominates
+    an existing solution.
+
+    The skewed objective value f'_i(x) for objective i is calculated using the following penalty-based formula:
+    f'_i(x) = f_i(x) - alpha_i * distance(x, y)
+
+    Where:
+    - f_i(x) is the true objective value.
+    - alpha_i is the weight parameter for objective i.
+    - distance(x, y) is the difference in solution space between the candidate x
+      and an existing solution y in the front.
+      
+    The resulting structure facilitates a deterministic, stage-based exploration (the "batch") 
+    of the custom-comparison front.
+    """
+
+    def __init__(
+        self,
+        alpha: list[float],
+        distance_metric: Callable[[Solution, Solution], float],
+    ):
+        """Init.
+
+        Args:
+            alpha (list[float]): List of alpha weights per objective (alpha_i). 
+                This parameter controls the skewing/penalty magnitude.
+            distance_metric ((Solution, Solution) -> float): Gives the difference 
+                distance between two solutions in the solution space.
+        """
+        super().__init__(make_skewed_comparator(alpha, distance_metric))

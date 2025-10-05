@@ -17,13 +17,8 @@ class _MOSCPSolution(Solution[np.ndarray]):
     The data attribute is a *packed* numpy.uint8 array.
     """
 
-    def equals(self, other: Solution[np.ndarray]) -> bool:
-        # Comparison can be done directly on the packed bytes
-        return np.array_equal(self.data, other.data)
-
     def get_hash(self) -> int:
         h = xxhash.xxh64()
-        # Hash the packed binary selection vector
         h.update(self.data.tobytes())
         return h.intdigest()
 

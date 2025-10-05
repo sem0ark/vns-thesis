@@ -86,7 +86,7 @@ The `show` command is used to analyze results from previously executed optimizat
     uv run python ./cli.py show mokp -i ... -t 10s metrics -o ./results/run_summary.xlsx
     ```
 
-Both `show` sub-commands can be further refined using the **`-f`** or **`--filter-configs`** option. This option accepts a comma-separated list of keywords to match specific algorithm configurations. Multiple groups of filters can be combined using the keyword **`or`**.
+Both `show` sub-commands can be further refined using the **`-f`** or **`--filter-configs`** option. This option accepts a boolean expression of "tags", in case any run configuration has multiple space-separated parts, e.g. "vns and k2 or nsga2", filters will match runs with names such as "vns test k2", "k2 vns", "nsga pop_200", etc.
 
 #### `run`
 

@@ -45,7 +45,7 @@ def run_vns_optimizer(
             iteration_actual += 1
             improved_in_cycle = improved or improved_in_cycle
 
-        if iteration_actual & logging_interval_mask == 0:
+        if iteration & logging_interval_mask == 0:
             front = optimizer.acceptance_criterion.get_all_solutions()
 
             logger.info(
