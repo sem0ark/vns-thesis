@@ -2,6 +2,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from enum import Enum
 from functools import cached_property
+from pathlib import Path
 from typing import Any, Iterable, Self, TypeVar
 
 T = TypeVar("T")
@@ -27,9 +28,13 @@ class Problem[T](ABC):
         num_variables: int,
         num_objectives: int,
         num_constraints: int,
+
+        problem_name: str = "",
         objective_names: list[str] | None = None,
     ) -> None:
         super().__init__()
+        self.problem_name = problem_name
+
         self.num_variables = num_variables
         self.num_objectives = num_objectives
         self.num_constraints = num_constraints

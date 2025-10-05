@@ -288,7 +288,7 @@ class AcceptBatchWrapped(AcceptanceCriterion):
         if self.front_snapshot:
             return self.front_snapshot.pop()
 
-        raise ValueError("Archive is empty.")
+        raise ValueError("Archive is empty and all solutions have been processed.")
 
     def _take_snapshot(self):
         self.front_snapshot = list(self.custom_front.get_all_solutions())
@@ -317,7 +317,7 @@ class AcceptBeamSkewed(AcceptBeamWrapped):
     - alpha_i is the weight parameter for objective i.
     - distance(x, y) is the difference in solution space between the candidate x
       and an existing solution y in the front.
-    
+
     The resulting structure facilitates a randomized, non-exhaustive exploration of the
     custom-comparison front (the "beam").
     """
@@ -330,9 +330,9 @@ class AcceptBeamSkewed(AcceptBeamWrapped):
         """Init.
 
         Args:
-            alpha (list[float]): List of alpha weights per objective (alpha_i). 
+            alpha (list[float]): List of alpha weights per objective (alpha_i).
                 This parameter controls the skewing/penalty magnitude.
-            distance_metric ((Solution, Solution) -> float): Gives the difference 
+            distance_metric ((Solution, Solution) -> float): Gives the difference
                 distance between two solutions in the solution space.
         """
         super().__init__(make_skewed_comparator(alpha, distance_metric))
@@ -356,8 +356,8 @@ class AcceptBatchSkewed(AcceptBatchWrapped):
     - alpha_i is the weight parameter for objective i.
     - distance(x, y) is the difference in solution space between the candidate x
       and an existing solution y in the front.
-      
-    The resulting structure facilitates a deterministic, stage-based exploration (the "batch") 
+
+    The resulting structure facilitates a deterministic, stage-based exploration (the "batch")
     of the custom-comparison front.
     """
 
@@ -369,9 +369,9 @@ class AcceptBatchSkewed(AcceptBatchWrapped):
         """Init.
 
         Args:
-            alpha (list[float]): List of alpha weights per objective (alpha_i). 
+            alpha (list[float]): List of alpha weights per objective (alpha_i).
                 This parameter controls the skewing/penalty magnitude.
-            distance_metric ((Solution, Solution) -> float): Gives the difference 
+            distance_metric ((Solution, Solution) -> float): Gives the difference
                 distance between two solutions in the solution space.
         """
         super().__init__(make_skewed_comparator(alpha, distance_metric))
