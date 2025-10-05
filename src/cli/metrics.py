@@ -16,8 +16,6 @@ from pymoo.indicators.igd import IGD
 from src.cli.shared import SavedRun
 from src.vns.acceptance import ParetoFront
 
-logger = logging.getLogger("cli/metrics.py")
-
 
 def load_instance_data_json(file_path: Path) -> dict[str, Any]:
     if not file_path.exists():
@@ -258,10 +256,10 @@ def calculate_metrics(
 
     predefined_front = problem_data.get("reference_front")
     if predefined_front:
-        logger.info("Got a predefined reference front!")
+        print("Got a predefined reference front!")
         reference_front = np.array(predefined_front)
     else:
-        logger.info("Merging all solutiosn to get a reference front...")
+        print("Merging all solutiosn to get a reference front...")
         reference_front = merge_runs_to_non_dominated_front(all_runs)
 
     if reference_front.size == 0:
@@ -336,9 +334,7 @@ def calculate_metrics(
             avg_epsilon = np.nanmean([m.epsilon for m in run_metrics_list])
             avg_hypervolume = np.nanmean([m.hypervolume for m in run_metrics_list])
             avg_r_metric = np.nanmean([m.r_metric for m in run_metrics_list])
-            avg_igd = np.nanmean(
-                [m.inverted_generational_distance for m in run_metrics_list]
-            )
+            avg_igd = np.nanmean([m.inverted_generational_distance for m in run_metrics_list])
 
             metrics_results[run_name] = Metrics(
                 epsilon=float(avg_epsilon),
@@ -382,18 +378,18 @@ def export_table(
 
     if output_path.suffix.lower() == ".csv":
         df.to_csv(output_path, index=False)
-        logger.info(f"Metrics successfully exported to CSV: {output_path}")
+        print(f"Metrics successfully exported to CSV: {output_path}")
     elif output_path.suffix.lower() in [".xlsx", ".xls"]:
         try:
             with pd.ExcelWriter(output_path, engine="xlsxwriter") as writer:
                 df.to_excel(writer, sheet_name=sheet_name, index=False)
-            logger.info(f"Metrics successfully exported to Excel: {output_path}")
+            print(f"Metrics successfully exported to Excel: {output_path}")
         except ImportError:
-            logger.error(
+            print(
                 "Error: Please install 'xlsxwriter' (or 'openpyxl') for Excel export."
             )
             df.to_csv(output_path.with_suffix(".csv"), index=False)
-            logger.warning(
+            print(
                 f"Falling back to CSV export: {output_path.with_suffix('.csv')}"
             )
     else:
@@ -439,14 +435,14 @@ def prepare_coverage_table_data(
             row.append(f"{coverage:.4f}" if not np.isnan(coverage) else "N/A")
         table_data.append(row)
 
-    logger.info(
+    print(
         f"(Hiding runs completely dominated by another run: {list(dominated_runs)})"
     )
 
     return headers, table_data
 
 
-def prepare_metrics_table_data(
+def prepare_unary_metrics_table_data(
     instance_path: Path,
     all_runs_grouped: dict[str, list[SavedRun]],
     filtered_runs_grouped: dict[str, list[SavedRun]],
@@ -502,88 +498,90 @@ def display_metrics(
     instance_path: Path,
     all_runs_grouped: dict[str, list[SavedRun]],
     filtered_runs_grouped: dict[str, list[SavedRun]],
+    unary: bool,
+    coverage: bool,
     output_file: Path | None = None,
 ):
     """
     Calculates and displays all metrics (unary and coverage),
     with an option to export them.
     """
-    # 1. Prepare Unary Metrics Table
-    _, (unary_headers, unary_table_data) = prepare_metrics_table_data(
-        instance_path, all_runs_grouped, filtered_runs_grouped
-    )
-
-    logger.info("--- Unary Metrics Table ---")
-    print(
-        tabulate.tabulate(
-            unary_table_data, headers=unary_headers, tablefmt="fancy_grid"
-        )
-    )
-
-    # 2. Prepare Coverage Metrics Table
-    coverage_metrics = calculate_coverage_metrics(
-        {
-            name: merge_runs_to_non_dominated_front(runs)
-            for name, runs in filtered_runs_grouped.items()
-        }
-    )
-    coverage_headers, coverage_table_data = prepare_coverage_table_data(
-        coverage_metrics
-    )
-
-    logger.info("--- Coverage (C(A, B)) Matrix ---")
-    print(
-        tabulate.tabulate(
-            coverage_table_data, headers=coverage_headers, tablefmt="fancy_grid"
-        )
-    )
-
-    # 3. Export Tables if output_file is provided
-    if output_file:
-        base_name = output_file.stem
-        suffix = output_file.suffix
-
-        # Export Unary Metrics
-        unary_export_path = output_file.with_name(f"{base_name}_unary{suffix}")
-        export_table(
-            table_data=[
-                [row[0]]
-                + [
-                    float(val) if val != "N/A" and isinstance(val, str) else val
-                    for val in row[1:]
-                ]
-                for row in unary_table_data  # Use raw float values for export
-            ],
-            headers=unary_headers,
-            output_path=unary_export_path,
-            sheet_name="Unary Metrics",
+    if unary:
+        _, (unary_headers, unary_table_data) = prepare_unary_metrics_table_data(
+            instance_path, all_runs_grouped, filtered_runs_grouped
         )
 
-        # Export Coverage Metrics
-        coverage_export_path = output_file.with_name(f"{base_name}_coverage{suffix}")
-        export_table(
-            table_data=[
-                [row[0]]
-                + [
-                    float(val) if val != "N/A" and isinstance(val, str) else val
-                    for val in row[1:]
-                ]
-                for row in coverage_table_data
-            ],
-            headers=coverage_headers,
-            output_path=coverage_export_path,
-            sheet_name="Coverage Matrix",
+        print("--- Unary Metrics Table ---")
+        print(
+            tabulate.tabulate(
+                unary_table_data, headers=unary_headers, tablefmt="fancy_grid"
+            )
         )
+
+        if output_file:
+            base_name = output_file.stem
+            suffix = output_file.suffix
+
+            unary_export_path = output_file.with_name(f"{base_name}_unary{suffix}")
+            export_table(
+                table_data=[
+                    [row[0]]
+                    + [
+                        float(val) if val != "N/A" and isinstance(val, str) else val
+                        for val in row[1:]
+                    ]
+                    for row in unary_table_data  # Use raw float values for export
+                ],
+                headers=unary_headers,
+                output_path=unary_export_path,
+                sheet_name="Unary Metrics",
+            )
+
+    if coverage:
+        coverage_metrics = calculate_coverage_metrics(
+            {
+                name: merge_runs_to_non_dominated_front(runs)
+                for name, runs in filtered_runs_grouped.items()
+            }
+        )
+        coverage_headers, coverage_table_data = prepare_coverage_table_data(
+            coverage_metrics
+        )
+
+        print("--- Coverage (C(A, B)) Matrix ---")
+        print(
+            tabulate.tabulate(
+                coverage_table_data, headers=coverage_headers, tablefmt="fancy_grid"
+            )
+        )
+        
+        if output_file:
+            base_name = output_file.stem
+            suffix = output_file.suffix
+            coverage_export_path = output_file.with_name(f"{base_name}_coverage{suffix}")
+            export_table(
+                table_data=[
+                    [row[0]]
+                    + [
+                        float(val) if val != "N/A" and isinstance(val, str) else val
+                        for val in row[1:]
+                    ]
+                    for row in coverage_table_data
+                ],
+                headers=coverage_headers,
+                output_path=coverage_export_path,
+                sheet_name="Coverage Matrix",
+            )
 
 
 def plot_runs(
     instance_path: Path,
     all_runs_grouped: Dict[str, List[SavedRun]],
     filtered_runs_grouped: dict[str, list[SavedRun]],
-    /,
-    **kwargs: Any,
+    objective_names: list[str],
+    plot_lines = True,
 ) -> None:
-    logger.info("""Plotting the results:
+    print("""Plotting the results:
 Controls:
 Press 'h' to hide all graphs except reference front.
 Use arrow keys to move legend around.
@@ -596,15 +594,15 @@ You can also click on graphs in legend to show/hide any specific one.
     predefined_front = problem_data.get("reference_front")
 
     if predefined_front:
-        logger.info("Got a predefined reference front!")
+        print("Got a predefined reference front!")
         reference_front = np.array(predefined_front)
     else:
-        logger.info("Merging all runs to get an approximate reference front...")
+        print("Merging all runs to get an approximate reference front...")
         reference_front = merge_runs_to_non_dominated_front(all_runs)
-        logger.info(f"Made a reference front from {len(all_runs)} runs")
+        print(f"Made a reference front from {len(all_runs)} runs")
 
     if reference_front.size == 0:
-        logger.error("Error: reference front is empty! Exiting...")
+        print("Error: reference front is empty! Exiting...")
         return
 
     all_flipped_indices = set()
@@ -656,7 +654,7 @@ You can also click on graphs in legend to show/hide any specific one.
             merged_front[:, 0],
             merged_front[:, 1],
             marker="o",
-            linestyle="-" if kwargs.get("lines", None) else "",
+            linestyle="-" if plot_lines else "",
             label=run_name,
             alpha=0.6,
         )
@@ -674,12 +672,6 @@ You can also click on graphs in legend to show/hide any specific one.
         linewidth=2,
     )
     lines_dict["Reference Front"] = ref_line
-
-    objective_names: list[str] = ["Z1", "Z2"]
-    if kwargs.get("objective_names"):
-        objective_names = [
-            name.strip() for name in kwargs.get("objective_names", "").split(",")
-        ]
 
     if filtered_runs_grouped:
         metadata = list(filtered_runs_grouped.values())[0][0].metadata

@@ -164,7 +164,7 @@ class PymooInstanceRunner(InstanceRunner):
             ("NSGA2", NSGA2),
             ("SPEA2", SPEA2),
         ]
-        population_sizes = [50, 100, 150, 200, 300]
+        population_sizes = [50, 100, 150, 200, 300, 400, 500, 700, 1000]
 
         for (
             (algorithm_name, algorithm),
@@ -224,4 +224,4 @@ class PymooInstanceRunner(InstanceRunner):
 
 if __name__ == "__main__":
     base = Path(__file__).parent / "runs"
-    CLI("MOKP", base, [VNSInstanceRunner, PymooInstanceRunner]).run()
+    CLI("MOKP", base, [VNSInstanceRunner, PymooInstanceRunner], MOKPProblem).run()

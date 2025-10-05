@@ -1,5 +1,6 @@
 import json
-from typing import Any, Dict, Iterable, List, Tuple, cast
+import random
+from typing import Iterable
 
 import numpy as np
 import xxhash
@@ -12,191 +13,140 @@ type MOSCPSolution = Solution[np.ndarray]
 
 class _MOSCPSolution(Solution[np.ndarray]):
     """
-    Represents a solution for the MO-SCP problem.
-    data: A 1D numpy array representing the permutation of vertex indices (0 to N-1).
-    The position in the array determines the position of a given node (0 to N-1).
+    Represents a solution for MO-SCP.
+    The data attribute is a *packed* numpy.uint8 array.
     """
-
     def equals(self, other: Solution[np.ndarray]) -> bool:
-        return hash(self) == hash(other)
+        # Comparison can be done directly on the packed bytes
+        return np.array_equal(self.data, other.data)
 
     def get_hash(self) -> int:
         h = xxhash.xxh64()
+        # Hash the packed binary selection vector
         h.update(self.data.tobytes())
         return h.intdigest()
 
-    @property
-    def node_positions(self):
-        positions = np.zeros(self.data.size, dtype=int)
-        for pos, v in enumerate(self.data):
-            positions[v] = pos
-        return positions
-
-    def to_json_serializable(self) -> Any:
-        return self.data.tolist()
+    def to_json_serializable(self):
+        # Unpack before serialization for human readability and consistent format
+        unpacked_data = np.unpackbits(self.data)[:self.problem.num_variables]
+        return unpacked_data.tolist()
 
     @staticmethod
     def from_json_serializable(problem: Problem[np.ndarray], serialized_data: list[int]) -> MOSCPSolution:
-        return _MOSCPSolution(np.array(serialized_data), problem)
+        # Load the unpacked data, then pack it for internal storage
+        unpacked_array = np.array(serialized_data, dtype=np.uint8)
+        packed_array = np.packbits(unpacked_array)
+        return _MOSCPSolution(packed_array, problem)
 
 
 class MOSCPProblem(Problem[np.ndarray]):
 
     def __init__(
         self,
-        num_nodes: int,
-        # Adjacency list: [(u, [v1, v2, ...]), ...] where u and v are 0-based integers.
-        graph_adj_list: list[tuple[int, list[int]]],
+        coverage_data: list[list[int]],
+        costs: list[list[int]],
+        num_items: int,
+        num_sets: int,
     ):
-        super().__init__(num_constraints=0, num_objectives=2, num_variables=num_nodes)
+        super().__init__(
+            num_variables=num_sets,
+            num_objectives=len(costs),
+            num_constraints=1,
+        )
 
-        self.num_nodes = num_nodes
-        self.num_objectives = 2
+        self.num_items = num_items
+        self.num_sets = num_sets
+        self.costs = np.array(costs, dtype=int).T
 
-        # 0-based adjacency list
-        self.adj_list: Dict[int, List[int]] = {}
-        for u, neighbors in graph_adj_list:
-            # Filter self-loops
-            self.adj_list[u] = [v for v in neighbors if v != u]
+        # Coverage matrix: self.coverage[item_idx, set_idx] = 1 if set_idx covers item_idx
+        self.coverage_unpacked = np.zeros((num_items, num_sets), dtype=np.uint8)
+        for item_idx, covering_sets_1based in enumerate(coverage_data):
+            covering_sets_0based = [s - 1 for s in covering_sets_1based]
+            self.coverage_unpacked[item_idx, covering_sets_0based] = 1
 
-        # Ensure all nodes are present in the keys (even isolated ones)
-        for i in range(self.num_nodes):
-            if i not in self.adj_list:
-                self.adj_list[i] = []
+        # Transpose and Pack the Sets: (num_sets x packed_item_bits)
+        self.set_coverage_packed = np.array([
+            np.packbits(self.coverage_unpacked[:, j]) for j in range(num_sets)
+        ])
 
-    def get_initial_solutions(
-        self, num_solutions: int = 50
-    ) -> Iterable[MOSCPSolution]:
-        """Generates a specified number of random permutations (layouts)."""
+        # Create the ALL_COVERED mask (a bit vector of all 1s for the item space)
+        # Useful in case we have num_items % 8 != 0
+        all_ones = np.ones(num_items, dtype=np.uint8)
+        self.all_covered_mask = np.packbits(all_ones)
+
+    def get_initial_solutions(self, num_solutions: int = 50) -> Iterable[MOSCPSolution]:
         solutions = []
+
         for _ in range(num_solutions):
-            # Solution is a permutation of vertex indices [0, 1, ..., N-1]
-            solution_data = np.arange(self.num_nodes, dtype=int)
-            np.random.shuffle(solution_data)
-            solutions.append(_MOSCPSolution(solution_data, self))
+            solution_data_unpacked = np.zeros(self.num_variables, dtype=np.bool_)
+            uncovered_items = set(range(self.num_constraints))
+
+            while uncovered_items:
+                item_idx = random.choice(list(uncovered_items))
+                possible_sets_indices = np.where(self.coverage_unpacked[item_idx] == 1)[0]
+
+                if not possible_sets_indices.size:
+                    raise RuntimeError("Infeasible instance: An item cannot be covered.")
+
+                # Only consider sets that haven't been selected yet for a random choice
+                unselected_sets = [s for s in possible_sets_indices if solution_data_unpacked[s] == 0]
+                if not unselected_sets:
+                    break
+
+                set_to_add = random.choice(unselected_sets)
+                solution_data_unpacked[set_to_add] = 1
+
+                # Check coverage against current selection
+                current_selection_mask = solution_data_unpacked == 1
+                total_coverage = self.coverage_unpacked @ current_selection_mask
+
+                # Update uncovered items
+                uncovered_items = set(np.where(total_coverage < 1)[0])
+
+            solutions.append(_MOSCPSolution(solution_data_unpacked, self))
+
         return solutions
 
-    def get_antibandwidth(self, solution: MOSCPSolution) -> int:
-        """
-        Antibandwidth = min_{v in V} { min_{(u,v) in E} { |pi(u) - pi(v)| } }
-        """
-        sol: _MOSCPSolution = cast(Any, solution)
-        positions = sol.node_positions
-
-        antibandwidth_values = []
-
-        for current in range(self.num_nodes):
-            neighbors = self.adj_list.get(current, [])
-
-            if not neighbors:
-                continue
-
-            current_position = positions[current]
-
-            # AB(pi, u) = min_{v in N(u)} { |pi(u) - pi(v)| }
-            neighbor_positions = positions[neighbors]
-            antibandwidth_values.append(
-                np.min(np.abs(current_position - neighbor_positions))
-            )
-
-        return min(antibandwidth_values) + sum(antibandwidth_values) / self.num_nodes**2
-
-    def get_cutwidth(self, solution: MOSCPSolution) -> int:
-        # We can calculate it using a more optimized version of:
-        # for i in [0, N-1] Compute max of:
-        #    cut_edges = 0
-        #    set_left = set(ordering[:i+1])
-        #    set_right = set(ordering[i+1:])
-        #    for u in set_left:
-        #        for neighbor in graph[u]: # Assuming adjacency list
-        #            if neighbor in set_right:
-        #                cut_edges += 1
-
-        sol: _MOSCPSolution = cast(Any, solution)
-        permutation = sol.data
-        positions = sol.node_positions
-
-        current_cut = 0  # Represents the cut size C(k)
-        cuts = []
-
-        # We iterate over the N-1 cuts. k is the position index (0 to N-2).
-        # The vertex v = permutation[k] moves from the right set (R) to the left set (L),
-        # defining the cut C(k+1).
-        for cut_position in range(self.num_nodes - 1):
-            current = permutation[cut_position]  # Vertex with position k+1 is moving.
-
-            # Change in "cut size" when V moves from R to L
-            delta_cut = 0
-
-            for w in self.adj_list.get(current, []):
-                position_w = positions[w]
-
-                # Check neighbor's position relative to the old left set (position <= k)
-                if position_w <= (cut_position + 1):
-                    # w is in the new L (position 1 to k+1).
-                    # If position_w <= k: Edge (v, w) stops crossing (R->L to L->L). Delta -1.
-                    if position_w <= cut_position:
-                        delta_cut -= 1
-                    else:
-                        pass
-
-                # Check neighbor's position relative to the new right set (position > k+1)
-                elif position_w > (cut_position + 1):
-                    # Case 2: w is still in the new R (position k+2 to N).
-                    # Edge (v, w) starts crossing (R->R to L->R). Delta +1.
-                    delta_cut += 1
-
-            # Update the cut size for C(k+1)
-            current_cut += delta_cut
-
-            # C(1) to C(N-1) are the relevant cuts
-            cuts.append(current_cut)
-
-        return max(cuts) + sum(cuts) / self.num_nodes**2
-
-    def evaluate_solution(self, solution: MOSCPSolution) -> Tuple[float, float]:
-        """
-        Calculates the two objective function values (z1 and z2).
-        """
-        if self.num_nodes == 0:
-            return 0.0, 0.0
-
-        # Maximize z1 = min_{v in V} { min_{(u,v) in E} { |pi(u) - pi(v)| } }
-        z1 = -float(self.get_antibandwidth(solution))
-
-        # Minimize z2 = max_{k=1}^{n-1} C(k)
-        # C(k): cut size after the vertex with position k (i.e., between k and k+1)
-        z2 = float(self.get_cutwidth(solution))
-
-        return z1, z2
-
     def satisfies_constraints(self, solution: MOSCPSolution) -> bool:
-        return True
+        """
+        Checks if a solution is feasible (every item is covered).
+        Requires unpacking the solution data.
+        """
+        set_selection_vector = solution.data.astype(bool)
+
+        # Get the packed coverage vectors for ALL selected sets
+        selected_set_coverages = self.set_coverage_packed[set_selection_vector]
+        if selected_set_coverages.size == 0:
+            return False
+
+        # Perform the Bitwise OR across all selected sets
+        # np.bitwise_or.reduce computes the cumulative OR along the first axis.
+        # This results in a single packed array representing the total coverage.
+        total_coverage_packed = np.bitwise_or.reduce(selected_set_coverages, axis=0)
+
+        # Check if the total coverage equals the mask where all items are set to 1
+        return bool(np.all(total_coverage_packed == self.all_covered_mask))
+
+    def evaluate_solution(self, solution: MOSCPSolution) -> tuple[float, ...]:
+        """Calculates the total cost for each objective."""
+
+        is_feasible = self.satisfies_constraints(solution)
+        penalty_value = 1e12
+
+        results = tuple(
+            np.sum(solution.data * self.costs[i]) if is_feasible else penalty_value
+            for i in range(self.num_objectives)
+        )
+
+        return results
 
     @staticmethod
-    def calculate_solution_distance(
-        sol1: MOSCPSolution, sol2: MOSCPSolution
-    ) -> float:
-        """
-        Calculates the distance between two permutations using normalized Hamming distance.
-        """
-        if sol1.data.size == 0:
-            return 0.0
-
-        # Number of positions where the two permutations differ
-        disagreements = np.sum(sol1.data != sol2.data)
-
-        # Normalized distance: [0, 1]
-        return float(disagreements) / sol1.data.size
+    def calculate_solution_distance(sol1: MOSCPSolution, sol2: MOSCPSolution) -> float:
+        """Calculates the Hamming distance (difference in selected sets) between two MO-SCP solutions."""
+        return float(np.sum(sol1.data != sol2.data)) / sol1.data.size
 
     @staticmethod
     def load(filename: str) -> "MOSCPProblem":
-        """
-        Load JSON-formatted MO-ACBW instance.
-        Expects to have two main elements defined under "data":
-        - nodes -> total number of nodes in the graph
-        - graph -> adjacency list like structure of form list[tuple[node_number: int, neighbor_numbers: list[int]]]
-        """
         try:
             with open(filename, "r") as f:
                 configuration = json.load(f)
@@ -205,15 +155,19 @@ class MOSCPProblem(Problem[np.ndarray]):
         except Exception as e:
             raise ValueError(f"Error reading file {filename}: {e}")
 
-        nodes = configuration["data"]["nodes"]
-        graph = configuration["data"]["graph"]
+        data = configuration["data"]
 
-        return MOSCPProblem(nodes, graph)
+        num_items = data["num_items"]
+        num_sets = data["num_sets"]
+        coverage_data = data["sets"]
+        costs = data["costs"]
+
+        return MOSCPProblem(coverage_data, costs, num_items, num_sets)
 
 
 class MOSCPProblemPymoo(ElementwiseProblem):
     def __init__(self, problem: MOSCPProblem):
-        n_var = problem.num_nodes
+        n_var = problem.num_sets
         n_obj = problem.num_objectives
         n_constr = 0
 

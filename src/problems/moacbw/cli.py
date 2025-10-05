@@ -46,7 +46,7 @@ class VNSInstanceRunner(InstanceRunner):
         local_search_functions = [
             ("noop", noop()),
             *[
-                (f"{search_name}_{op_name}", search_func_factory(op_func))
+                (f"{search_name} {op_name}", search_func_factory(op_func))
                 for (
                     (search_name, search_func_factory),
                     (op_name, op_func),
@@ -54,7 +54,7 @@ class VNSInstanceRunner(InstanceRunner):
                     [
                         ("BI", best_improvement),
                         ("FI", first_improvement),
-                        ("QFI", first_improvement_quick),
+                        ("QI", first_improvement_quick),
                     ],
                     [("op_swap", swap_op), ("op_short_swap", swap_limited_op)],
                 )
@@ -129,7 +129,7 @@ class PymooInstanceRunner(InstanceRunner):
             ("NSGA2", NSGA2),
             ("SPEA2", SPEA2),
         ]
-        population_sizes = [50, 100, 150, 200, 300]
+        population_sizes = [50, 100, 150, 200, 300, 400, 500, 700, 1000]
 
         for (
             (algorithm_name, algorithm),
@@ -189,4 +189,4 @@ class PymooInstanceRunner(InstanceRunner):
 
 if __name__ == "__main__":
     base = Path(__file__).parent / "runs"
-    CLI("moacbw", base, [VNSInstanceRunner, PymooInstanceRunner]).run()
+    CLI("moacbw", base, [VNSInstanceRunner, PymooInstanceRunner], MOACBWProblem).run()

@@ -27,11 +27,15 @@ class Problem[T](ABC):
         num_variables: int,
         num_objectives: int,
         num_constraints: int,
+        objective_names: list[str] | None = None
     ) -> None:
         super().__init__()
         self.num_variables = num_variables
         self.num_objectives = num_objectives
         self.num_constraints = num_constraints
+
+        self.objective_names = objective_names or [f"Z{i}" for i in range(1, num_objectives + 1)]
+        """Actual names of the objectives used when displaying optimization results."""
 
     @abstractmethod
     def evaluate_solution(self, solution: "Solution[T]") -> tuple[float, ...]:

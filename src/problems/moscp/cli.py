@@ -13,8 +13,8 @@ from pymoo.util.nds.non_dominated_sorting import NonDominatedSorting
 
 from src.cli.cli_utils import CLI, InstanceRunner, RunConfig
 from src.cli.shared import Metadata, SavedRun, SavedSolution
-from src.problems.moacbw.problem import MOACBWProblem, MOACBWProblemPymoo
-from src.problems.moacbw.vns import shake_swap, swap_limited_op, swap_op
+from src.problems.moscp.problem import MOSCPProblem, MOSCPProblemPymoo
+from src.problems.moscp.vns import shake_swap, swap_limited_op, swap_op
 from src.problems.vns_runner_utils import run_vns_optimizer
 from src.vns.abstract import VNSOptimizerAbstract
 from src.vns.acceptance import AcceptBatch, AcceptBatchSkewed
@@ -30,7 +30,7 @@ from src.vns.optimizer import ElementwiseVNSOptimizer
 class VNSInstanceRunner(InstanceRunner):
     def __init__(self, config: RunConfig):
         super().__init__(config)
-        self.problem = MOACBWProblem.load(str(config.instance_path))
+        self.problem = MOSCPProblem.load(str(config.instance_path))
 
     def get_variants(self) -> Iterable[tuple[str, Callable[[RunConfig], SavedRun]]]:
         acceptance_criteria = [
@@ -38,7 +38,7 @@ class VNSInstanceRunner(InstanceRunner):
             (
                 "skewed",
                 AcceptBatchSkewed(
-                    [5.0, 5.0], MOACBWProblem.calculate_solution_distance
+                    [5.0, 5.0], MOSCPProblem.calculate_solution_distance
                 ),
             ),
         ]
@@ -54,7 +54,7 @@ class VNSInstanceRunner(InstanceRunner):
                     [
                         ("BI", best_improvement),
                         ("FI", first_improvement),
-                        ("QFI", first_improvement_quick),
+                        ("QI", first_improvement_quick),
                     ],
                     [("op_swap", swap_op), ("op_short_swap", swap_limited_op)],
                 )
@@ -107,7 +107,7 @@ class VNSInstanceRunner(InstanceRunner):
                     run_time_seconds=int(config.run_time_seconds),
                     name=optimizer.name,
                     version=optimizer.version,
-                    problem_name="moacbw",
+                    problem_name="MOSCP",
                     instance_name=config.instance_path.stem,
                 ),
                 solutions=[
@@ -122,14 +122,14 @@ class VNSInstanceRunner(InstanceRunner):
 class PymooInstanceRunner(InstanceRunner):
     def __init__(self, config: RunConfig):
         super().__init__(config)
-        self.problem = MOACBWProblemPymoo(MOACBWProblem.load(str(config.instance_path)))
+        self.problem = MOSCPProblemPymoo(MOSCPProblem.load(str(config.instance_path)))
 
     def get_variants(self) -> Iterable[tuple[str, Callable[[RunConfig], SavedRun]]]:
         algorithms = [
             ("NSGA2", NSGA2),
             ("SPEA2", SPEA2),
         ]
-        population_sizes = [50, 100, 150, 200, 300]
+        population_sizes = [50, 100, 150, 200, 300, 400, 500, 700, 1000]
 
         for (
             (algorithm_name, algorithm),
@@ -178,7 +178,7 @@ class PymooInstanceRunner(InstanceRunner):
                     run_time_seconds=int(config.run_time_seconds),
                     name=name,
                     version=4,
-                    problem_name="moacbw",
+                    problem_name="MOSCP",
                     instance_name=Path(config.instance_path).stem,
                 ),
                 solutions=solutions_data,
@@ -189,4 +189,4 @@ class PymooInstanceRunner(InstanceRunner):
 
 if __name__ == "__main__":
     base = Path(__file__).parent / "runs"
-    CLI("moacbw", base, [VNSInstanceRunner, PymooInstanceRunner]).run()
+    CLI("MOSCP", base, [VNSInstanceRunner, PymooInstanceRunner], MOSCPProblem).run()

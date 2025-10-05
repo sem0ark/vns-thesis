@@ -11,6 +11,7 @@ import click
 from src.cli.metrics import display_metrics, plot_runs
 from src.cli.shared import Metadata, SavedRun, SavedSolution
 from src.cli.utils import parse_time_string
+from src.vns.abstract import Problem
 
 
 logger = logging.getLogger()
@@ -42,14 +43,24 @@ def _load_runs(
     """
     Loads saved run files for a given instance, returning the latest version of each unique configuration.
     """
-    all_files = root_folder.glob(f"{problem_name}_{instance_name}*.json")
+    all_files = root_folder.glob(f"{problem_name}_{instance_name}*.json", case_sensitive=False)
 
-    runs_by_name = {}
+    runs_by_name = defaultdict(list)
     for file_path in all_files:
+        
         try:
             with open(file_path, "r") as f:
                 data = json.load(f)
                 metadata = Metadata(**data["metadata"])
+                if metadata.instance_name.lower() != instance_name.lower() or metadata.problem_name.lower() != problem_name.lower():
+                    click.echo(
+                        f"Unexpected metadata for {file_path}: "
+                        f"got ({metadata.problem_name}, {metadata.instance_name}), "
+                        f"but expected ({problem_name}, {instance_name})"
+                    )
+                    del data
+                    continue
+
                 solutions = [
                     SavedSolution(
                         objectives=s["objectives"],
@@ -59,17 +70,10 @@ def _load_runs(
                 ]
                 del data
 
-            config_name = metadata.name
+            config_name = f"{metadata.name} v{metadata.version} {int(metadata.run_time_seconds)}s"
             run = SavedRun(metadata=metadata, solutions=solutions)
 
-            # Keep only the newest version for each config name
-            if (
-                config_name not in runs_by_name
-                or runs_by_name[config_name][0].metadata.version < metadata.version
-            ):
-                runs_by_name[config_name] = [run]
-            else:
-                runs_by_name[config_name].append(run)
+            runs_by_name[config_name].append(run)
 
         except (json.JSONDecodeError, KeyError, TypeError) as e:
             click.echo(f"Skipping malformed or incomplete run file {file_path}: {e}")
@@ -80,30 +84,19 @@ def _load_runs(
 
 def _filter_runs(
     runs_grouped: dict[str, list[SavedRun]],
-    max_time_seconds: float,
-    filter_configs: str = "",
+    filter_string: str = "",
     select_latest_only: bool = False,
 ) -> dict[str, list[SavedRun]]:
     """
     Filters saved run files based on name, run time, creation date.
     """
     runs_filtered = defaultdict(list)
-    filter_groups = [
-        [f.strip() for f in filter_group.strip().lower().split(",")]
-        for filter_group in filter_configs.split(" or ")
-    ]
 
     for config_name, runs in runs_grouped.items():
-        if filter_groups and not any(
-            all(filter_name in config_name.lower() for filter_name in filter_group)
-            for filter_group in filter_groups
-        ):
+        if not is_applicable_to_filter(config_name, filter_string):
             continue
 
         for run in runs:
-            if abs(run.metadata.run_time_seconds - max_time_seconds) > 1e-3:
-                continue
-
             runs_filtered[config_name].append(run)
 
     if select_latest_only:
@@ -128,16 +121,9 @@ def common_options(f):
     )(f)
 
     f = click.option(
-        "-t",
-        "--max-time",
-        required=True,
-        help="Maximum execution time (e.g., 30s, 1h).",
-    )(f)
-
-    f = click.option(
         "-f",
-        "--filter-configs",
-        default=None,
+        "--filter-string",
+        default="",
         help="Config name parts to match (e.g., 'vns,k1' will match 'vns k1 type 1', 'k2 vns type 2', etc.)",
     )(f)
 
@@ -174,10 +160,12 @@ class CLI:
         problem_name: str,
         storage_folder: Path,
         runners: list[type[InstanceRunner]],
+        problem_class: type[Problem],
     ) -> None:
         self.problem_name = problem_name
         self.storage_folder = storage_folder
         self.runners = runners
+        self.problem_class = problem_class
 
         self.storage_folder.mkdir(exist_ok=True, parents=True)
 
@@ -231,45 +219,72 @@ class CLI:
 
                 print(f"Optimization run data saved to: {destination_path}")
 
-    def _execute_show_logic(
+    def _execute_plot_logic(
         self,
         instance: str,
-        max_time: str,
-        filter_configs: str,
-        plot: bool,
-        headers: str,
-        output_file: Path | None,
+        filter_string: str,
         lines: bool,
     ):
-        """Contains the logic for loading and displaying metrics."""
+        """Contains the logic for displaying optimization runs."""
 
-        run_time_seconds = parse_time_string(max_time)
         instance_path = Path(instance)
         instance_name = instance_path.stem
+        problem_instance = self.problem_class.load(instance)
 
         click.echo(
-            f"Displaying metrics for problem: {self.problem_name} on instance: {instance_name}"
+            f"Displaying runs for problem {self.problem_name} on instance {instance_name}"
         )
 
         all_runs = _load_runs(self.storage_folder, self.problem_name, instance_name)
-        runs_to_show = _filter_runs(all_runs, run_time_seconds, filter_configs)
+        runs_to_show = _filter_runs(all_runs, filter_string)
 
         if not runs_to_show:
-            click.echo("No runs matched the filters or max-time criteria.")
+            click.echo(f"No runs matched the filters '{filter_string}'.")
             return
 
-        if plot:
-            click.echo("Plotting metrics...")
-            plot_runs(
-                instance_path,
-                all_runs,
-                runs_to_show,
-                objective_names=headers,
-                lines=lines,
+        plot_runs(
+            instance_path,
+            all_runs,
+            runs_to_show,
+            objective_names=problem_instance.objective_names,
+            plot_lines=lines,
+        )
+
+    def _execute_show_logic(
+        self,
+        instance: str,
+        unary: bool,
+        coverage: bool,
+        filter_string: str,
+        output_file: Path | None,
+    ):
+        """Contains the logic for loading and displaying metrics."""
+
+
+        instance_paths = sorted(glob.glob(instance))
+        if not instance_paths:
+            click.echo(
+                f"Warning: No files found matching pattern '{instance}'. Exiting..."
             )
-        else:
+            return
+
+        for instance_path_str in instance_paths:
+            instance_path = Path(instance_path_str)
+            instance_name = instance_path.stem
+
+            click.echo(
+                f"Displaying metrics for problem: {self.problem_name} on instance: {instance_name}"
+            )
+
+            all_runs = _load_runs(self.storage_folder, self.problem_name, instance_name)
+            runs_to_show = _filter_runs(all_runs, filter_string)
+
+            if not runs_to_show:
+                click.echo(f"No runs matched the filters '{filter_string}'.")
+                return
+
             click.echo("Displaying raw metrics...")
-            display_metrics(instance_path, all_runs, runs_to_show, output_file)
+            display_metrics(instance_path, all_runs, runs_to_show, unary, coverage, output_file)
 
     def run(self) -> None:
         """Builds and executes the top-level CLI."""
@@ -278,28 +293,70 @@ class CLI:
         def cli():
             pass
 
+        @common_options
         @cli.command(
             name="run", help="Run optimization configs on problem instance(s)."
         )
-        @common_options
-        def run_command(instance: str, max_time: str, filter_configs: str):
+        @click.option(
+            "-t",
+            "--max-time",
+            required=True,
+            help="Maximum execution time (e.g., 30s, 1h).",
+        )
+        def run_command(instance: str, filter_string: str, max_time: str):
             """
             Executes optimization runs for a specified problem and instance(s).
 
             Example: cli run knapsack -i 'data/*.json' -t 30s -f 'vns,k1 or vns,k3'
             """
-            self._execute_run_logic(instance, max_time, filter_configs)
+            self._execute_run_logic(instance, max_time, filter_string)
 
-        @cli.command(name="show", help="Show metrics (table or plot) for saved runs.")
-        @common_options
+        @cli.command(name="plot", help="Plot saved runs for a given instance.")
         @click.option(
-            "--plot", is_flag=True, help="Displays a plot instead of a metrics table."
+            "-i",
+            "--instance",
+            required=True,
+            type=click.Path(exists=True),
+            help="Path to instance file.",
         )
         @click.option(
-            "--headers",
+            "-f",
+            "--filter-string",
             default="",
-            type=str,
-            help="Objective names for plotting/display.",
+            help="Config name parts to match (e.g., 'vns,k1' will match 'vns k1 type 1', 'k2 vns type 2', etc.)",
+        )
+        @click.option(
+            "--lines/--no-lines",
+            is_flag=True,
+            default=True,
+            help="Connect solution front with points a line (for plotting).",
+        )
+        def plot_command(
+            instance: str,
+            filter_string: str,
+            lines: bool,
+        ):
+            """
+            Displays metrics for saved runs for a specified problem and instance.
+
+            Example: cli show knapsack -i 'data/instance1.json' -t 30s -f 'vns_k1' --plot
+            """
+            self._execute_plot_logic(
+                instance,
+                filter_string,
+                lines,
+            )
+
+        @cli.command(name="metrics", help="Show metrics for saved runs.")
+        @common_options
+        @click.option(
+            "--unary", is_flag=True, help="Displays a table of independent performance metrics for each configuration."
+        )
+        @click.option(
+            "--coverage", is_flag=True, help="Displays a table of 1-1 coverage comparisons."
+        )
+        @click.option(
+            "--export", is_flag=True, help="Export instance-specific metrics data in a common JSON format for multi-dataset comparison."
         )
         @click.option(
             "-o",
@@ -308,34 +365,24 @@ class CLI:
             default=None,
             help="File path to export metrics (.csv or .xlsx).",
         )
-        @click.option(
-            "--lines/--no-lines",
-            is_flag=True,
-            default=True,
-            help="Connect solution front with points a line (for plotting).",
-        )
-        def show_command(
+        def metrics_command(
             instance: str,
-            max_time: str,
-            filter_configs: str,
-            plot: bool,
-            headers: str,
+            filter_string: str,
+            unary: bool,
+            coverage: bool,
             output_file: Path | None,
-            lines: bool,
         ):
             """
             Displays metrics for saved runs for a specified problem and instance.
 
-            Example: cli show knapsack -i 'data/instance1.json' -t 30s -f 'vns_k1' --plot
+            Example: cli metrics knapsack -i 'data/instance1.json' -f 'vns_k1,30s' --plot
             """
             self._execute_show_logic(
                 instance,
-                max_time,
-                filter_configs,
-                plot,
-                headers,
+                unary,
+                coverage,
+                filter_string,
                 output_file,
-                lines,
             )
 
         setup_logging()
