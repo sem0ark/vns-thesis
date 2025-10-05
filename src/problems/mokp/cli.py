@@ -109,7 +109,7 @@ class VNSInstanceRunner(InstanceRunner):
             elif "skewed" in acc_name:
                 common_name = "SVNS"
 
-            config_name = f"{common_name} {acc_name} {search_name} k{k} {shake_name}"
+            config_name = f"vns {common_name} {acc_name} {search_name} k{k} {shake_name}"
 
             optimizer = ElementwiseVNSOptimizer(
                 problem=self.problem,
@@ -117,7 +117,7 @@ class VNSInstanceRunner(InstanceRunner):
                 acceptance_criterion=acceptance_criterion,
                 shake_function=shake_func,
                 name=config_name,
-                version=13,
+                version=14,
             )
 
             yield config_name, self.make_func(optimizer)
@@ -185,19 +185,27 @@ class PymooInstanceRunner(InstanceRunner):
             )
 
             results = res.F
-            if results is not None:
-                nd_sorting = NonDominatedSorting()
-                non_dominated_indices = nd_sorting.do(
-                    results, only_non_dominated_front=True
-                )
+            if results is None:
+                raise ValueError("Expected res.F to be non-null")
 
-                final_solutions_F = results[non_dominated_indices]
-            else:
-                final_solutions_F = np.array([])
+            solution_data = cast(None | np.ndarray, res.X)
+            if solution_data is None:
+                raise ValueError("Expected res.X to be non-null")
+
+            # for some reason even with binary sampling, result is still float
+            solution_data = np.round(solution_data).astype(int)
+
+            nd_sorting = NonDominatedSorting()
+            non_dominated_indices = nd_sorting.do(
+                results, only_non_dominated_front=True
+            )
+
+            final_solutions_objectives = results[non_dominated_indices]
+            final_solutions_data_entries = solution_data[non_dominated_indices]
 
             solutions_data = [
-                SavedSolution(cast(np.ndarray, sol).tolist())
-                for sol in final_solutions_F
+                SavedSolution(cast(np.ndarray, objectives).tolist(), cast(np.ndarray, data).tolist())
+                for objectives, data in zip(final_solutions_objectives, final_solutions_data_entries)
             ]
 
             return SavedRun(

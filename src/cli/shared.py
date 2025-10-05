@@ -1,6 +1,7 @@
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Iterable
+from pathlib import Path
+from typing import Any
 
 
 @dataclass
@@ -11,11 +12,12 @@ class Metadata:
     problem_name: str
     instance_name: str
     date: str = field(default_factory=lambda: datetime.now().isoformat())
+    file_path: Path | None = None
 
 
 @dataclass
 class SavedSolution:
-    objectives: Iterable[float] = field(default_factory=list)
+    objectives: list[float] | tuple[float, ...] = field(default_factory=list)
     data: Any = field(default_factory=list)
 
 

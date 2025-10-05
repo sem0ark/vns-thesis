@@ -54,6 +54,11 @@ class Problem[T](ABC):
         """Checks whether a solution is legit for a given problem."""
         raise NotImplementedError()
 
+    @abstractmethod
+    def load_solution(self, saved_solution_data: Any) -> "Solution[T]":
+        """Loads problem solution instance from a given sarialized data."""
+        raise NotImplementedError()
+
     @staticmethod
     @abstractmethod
     def load(filename: str) -> "Problem[T]":

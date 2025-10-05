@@ -157,7 +157,7 @@ class AcceptBeamSkewed(AcceptanceCriterion):
             distance = distance_metric(new_solution, current_solution)
             skewed_objectives = tuple(
                 obj_i - alpha[i] * distance
-                for i, obj_i in enumerate(current_solution.objectives)
+                for i, obj_i in enumerate(new_solution.objectives)
             )
             return is_dominating_min(skewed_objectives, current_solution.objectives)
 
@@ -267,17 +267,17 @@ class AcceptBatchSkewed(AcceptanceCriterion):
             distance = distance_metric(new_solution, current_solution)
             skewed_objectives = tuple(
                 obj_i - alpha[i] * distance
-                for i, obj_i in enumerate(current_solution.objectives)
+                for i, obj_i in enumerate(new_solution.objectives)
             )
-            # return is_dominating_min(skewed_objectives, current_solution.objectives)
-            if (
-                is_dominating_min(skewed_objectives, current_solution.objectives)
-                != ComparisonResult.WORSE
-            ):
-                return ComparisonResult.NON_DOMINATED
-            return is_dominating_min(
-                new_solution.objectives, current_solution.objectives
-            )
+            return is_dominating_min(skewed_objectives, current_solution.objectives)
+            # if (
+            #     is_dominating_min(skewed_objectives, current_solution.objectives)
+            #     != ComparisonResult.WORSE
+            # ):
+            #     return ComparisonResult.NON_DOMINATED
+            # return is_dominating_min(
+            #     new_solution.objectives, current_solution.objectives
+            # )
 
         # Holds the live, updated non-dominated solutions
         self.true_front = ParetoFront()

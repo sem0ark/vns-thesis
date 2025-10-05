@@ -4,6 +4,7 @@ import logging
 from collections import defaultdict
 from dataclasses import asdict, dataclass
 from pathlib import Path
+import shutil
 from typing import Callable, Iterable
 
 import click
@@ -13,8 +14,6 @@ from src.cli.metrics import display_metrics, plot_runs
 from src.cli.shared import Metadata, SavedRun, SavedSolution
 from src.cli.utils import parse_time_string
 from src.vns.abstract import Problem
-
-logger = logging.getLogger()
 
 
 def setup_logging(level=logging.INFO):
@@ -54,6 +53,8 @@ def _load_runs(
             with open(file_path, "r") as f:
                 data = json.load(f)
                 metadata = Metadata(**data["metadata"])
+                metadata.file_path = file_path
+
                 if (
                     metadata.instance_name.lower() != instance_name.lower()
                     or metadata.problem_name.lower() != problem_name.lower()
@@ -162,11 +163,149 @@ class CLI:
         problem_class: type[Problem],
     ) -> None:
         self.problem_name = problem_name
-        self.storage_folder = storage_folder
         self.runners = runners
         self.problem_class = problem_class
 
+        self.storage_folder = storage_folder
+        """Place to store correct runs."""
         self.storage_folder.mkdir(exist_ok=True, parents=True)
+
+        self.quarantine_folder = storage_folder / "incorrect"
+        """Place to store incorrect saved runs, which have wrong objective values or infeasible solutions."""
+        self.quarantine_folder.mkdir(exist_ok=True, parents=True)
+
+        self.archive_folder = storage_folder / "incorrect"
+        """Place to store incorrect saved runs, which have wrong objective values or infeasible solutions."""
+        self.archive_folder.mkdir(exist_ok=True, parents=True)
+
+
+    def _validate_run(
+        self,
+        run: SavedRun,
+        problem_instance: Problem,
+        file_path: Path,
+    ) -> bool:
+        """
+        Validates every solution in a run. Moves the file to quarantine if any solution fails.
+        Returns True if the run is valid, False otherwise.
+        """
+        is_valid = True
+        
+        for i, saved_solution in enumerate(run.solutions):
+            if not saved_solution.data:
+                click.echo(
+                    f"Validation FAILED: Solution #{i} data is missing in {file_path.name}."
+                )
+                is_valid = False
+                break
+
+            solution = problem_instance.load_solution(saved_solution.data)
+            if not problem_instance.satisfies_constraints(solution):
+                click.echo(
+                    f"Validation FAILED: Solution #{i} in {file_path.name} is INFEASIBLE."
+                )
+                is_valid = False
+                break
+
+            try:
+                calculated_objectives = problem_instance.evaluate_solution(solution)
+            except Exception as e:
+                 click.echo(
+                    f"Validation FAILED: Solution #{i} in {file_path.name} failed objective calculation: {e}"
+                )
+                 is_valid = False
+                 break
+            
+            if len(calculated_objectives) != len(saved_solution.objectives):
+                click.echo(
+                    f"Validation FAILED: Solution #{i} in {file_path.name} has objective count mismatch "
+                    f"({len(saved_solution.objectives)} saved vs {len(calculated_objectives)} calculated)."
+                )
+                is_valid = False
+                break
+                
+            for saved_obj, calc_obj in zip(saved_solution.objectives, calculated_objectives):
+                if abs(saved_obj - calc_obj) > 1e-6:
+                    click.echo(
+                        f"Validation FAILED: Solution #{i} in {file_path.name} has objective mismatch. "
+                        f"Saved: {saved_solution.objectives}, Calculated: {calculated_objectives}"
+                    )
+                    is_valid = False
+                    break
+            
+            if not is_valid:
+                break
+
+        if not is_valid:
+            # Move the file to quarantine folder
+            destination_path = self.quarantine_folder / file_path.name
+            shutil.move(file_path, destination_path)
+            click.echo(f"Run file moved to quarantine: {destination_path}")
+            return False
+
+        return True
+
+    def _execute_validate_logic(
+        self,
+        instance: str,
+        filter_expression: FilterExpression,
+    ):
+        """Contains the logic for validating saved run solutions."""
+
+        instance_paths = sorted(glob.glob(instance))
+        if not instance_paths:
+            click.echo(
+                f"Warning: No files found matching pattern '{instance}'. Exiting..."
+            )
+            return
+
+        for instance_path_str in instance_paths:
+            instance_path = Path(instance_path_str)
+            instance_name = instance_path.stem
+
+            try:
+                problem_instance = self.problem_class.load(instance_path_str)
+            except Exception as e:
+                click.echo(f"Error loading problem instance {instance_path_str}: {e}")
+                continue
+                
+            click.echo("-" * 50)
+            click.echo(
+                f"Validating runs for problem: {self.problem_name} on instance: {instance_name}"
+            )
+
+            # Use _load_runs with include_data=True
+            all_runs_grouped = _load_runs(
+                self.storage_folder, self.problem_name, instance_name, include_data=True
+            )
+            
+            runs_to_validate_grouped = _filter_runs(all_runs_grouped, filter_expression)
+            
+            if not runs_to_validate_grouped:
+                click.echo(f"No runs matched the filters '{filter_expression}' for validation.")
+                continue
+
+            validated_count = 0
+            quarantined_count = 0
+            
+            for config_name, runs in runs_to_validate_grouped.items():
+                for run in runs:
+                    file_path = run.metadata.file_path
+                    if file_path is None:
+                        click.echo(f"Error: Could not determine file path for run {config_name}. Skipping validation.")
+                        continue
+
+                    click.echo(f"-> Checking run: {file_path.name}")
+                    if self._validate_run(run, problem_instance, file_path):
+                        validated_count += 1
+                    else:
+                        quarantined_count += 1
+
+            click.echo(f"Instance {instance_name} Summary:")
+            click.echo(f"  Total runs checked: {validated_count + quarantined_count}")
+            click.echo(f"  Valid runs: {validated_count}")
+            click.echo(f"  Invalid/Quarantined runs: {quarantined_count}")
+            click.echo("-" * 50)
 
     def _execute_run_logic(self, instance: str, max_time: str, filter_expression: FilterExpression):
         """Contains the logic for running optimizations and saving results."""
@@ -186,6 +325,14 @@ class CLI:
 
         for instance_path_str in instance_paths:
             configuration = RunConfig(run_time_seconds, Path(instance_path_str))
+            instance_path = Path(instance_path_str)
+            instance_name = instance_path.stem
+
+            try:
+                problem_instance = self.problem_class.load(instance_path_str)
+            except Exception as e:
+                click.echo(f"Error loading problem instance {instance_path_str}: {e}")
+                continue
 
             problem_configs = {
                 config_name: func
@@ -203,8 +350,6 @@ class CLI:
                 )
 
                 results = runner(configuration)
-
-                instance_name = Path(instance_path_str).stem
                 timestamp = results.metadata.date
 
                 destination_path = (
@@ -217,6 +362,8 @@ class CLI:
                     json.dump(asdict(results), f)
 
                 print(f"Optimization run data saved to: {destination_path}")
+
+                self._validate_run(results, problem_instance, destination_path)
 
     def _execute_plot_logic(
         self,
@@ -307,7 +454,7 @@ class CLI:
             """
             Executes optimization runs for a specified problem and instance(s).
 
-            Example: cli run knapsack -i 'data/*.json' -t 30s -f 'vns,k1 or vns,k3'
+            Example: script.py run -i 'data/*.json' -t 30s -f 'vns,k1 or vns,k3'
             """
             self._execute_run_logic(instance, max_time, filter_string)
 
@@ -322,8 +469,9 @@ class CLI:
         @click.option(
             "-f",
             "--filter-string",
+            type=ClickFilterExpression(),
             default="",
-            help="Config name parts to match (e.g., 'vns,k1' will match 'vns k1 type 1', 'k2 vns type 2', etc.)",
+            help="Boolean filter expression for config names (e.g., '(vns or nsga2) and 120s').",
         )
         @click.option(
             "--lines/--no-lines",
@@ -333,17 +481,17 @@ class CLI:
         )
         def plot_command(
             instance: str,
-            filter_expression: FilterExpression,
+            filter_string: FilterExpression,
             lines: bool,
         ):
             """
             Displays metrics for saved runs for a specified problem and instance.
 
-            Example: cli show knapsack -i 'data/instance1.json' -t 30s -f 'vns_k1' --plot
+            Example: script.py show -i 'data/instance1.json' -t 30s -f 'vns_k1' --plot
             """
             self._execute_plot_logic(
                 instance,
-                filter_expression,
+                filter_string,
                 lines,
             )
 
@@ -381,7 +529,7 @@ class CLI:
             """
             Displays metrics for saved runs for a specified problem and instance.
 
-            Example: cli metrics knapsack -i 'data/instance1.json' -f 'vns_k1,30s' --plot
+            Example: script.py metrics -i 'data/instance1.json' -f 'vns_k1,30s' --plot
             """
             self._execute_show_logic(
                 instance,
@@ -390,6 +538,20 @@ class CLI:
                 filter_expression,
                 output_file,
             )
+
+        @cli.command(
+            name="validate", help="Validate saved run solutions for correctness."
+        )
+        @common_options
+        def validate_command(instance: str, filter_string: FilterExpression):
+            """
+            Validates saved solutions against the problem's feasibility and objective functions.
+            Invalid run files are moved to the quarantine folder.
+            
+            Example: script.py validate -i 'data/*.json' -f 'vns,k1 or nsga2'
+            """
+            self._execute_validate_logic(instance, filter_string)
+
 
         setup_logging()
         cli()

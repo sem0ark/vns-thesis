@@ -27,6 +27,8 @@ class _MOKPSolution(Solution[np.ndarray]):
     def from_json_serializable(
         problem: Problem[np.ndarray], serialized_data: list[int]
     ) -> MOKPSolution:
+        if not isinstance(serialized_data, list):
+            raise ValueError("Expected saved_solution_data to be list of ints (0 or 1)!")
         return _MOKPSolution(np.array(serialized_data), problem)
 
 
@@ -84,6 +86,9 @@ class MOKPProblem(Problem[np.ndarray]):
             for i in range(self.num_objectives)
         )
         return result
+
+    def load_solution(self, saved_solution_data) -> MOKPSolution:
+        return _MOKPSolution.from_json_serializable(self, saved_solution_data)
 
     @staticmethod
     def calculate_solution_distance(sol1: MOKPSolution, sol2: MOKPSolution) -> float:
