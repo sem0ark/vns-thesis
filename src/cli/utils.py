@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 import re
 
 import numpy as np
@@ -28,6 +29,8 @@ def parse_time_string(time_str: str) -> int:
 
 class NpEncoder(json.JSONEncoder):
     def default(self, o):
+        if isinstance(o, (Path)):
+            return None
         if isinstance(o, (np.bool_, np.bool)):
             return bool(o)
         if isinstance(o, np.integer):
