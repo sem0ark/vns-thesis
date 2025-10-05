@@ -16,6 +16,7 @@ class _MOSCPSolution(Solution[np.ndarray]):
     Represents a solution for MO-SCP.
     The data attribute is a *packed* numpy.uint8 array.
     """
+
     def equals(self, other: Solution[np.ndarray]) -> bool:
         # Comparison can be done directly on the packed bytes
         return np.array_equal(self.data, other.data)
@@ -28,11 +29,13 @@ class _MOSCPSolution(Solution[np.ndarray]):
 
     def to_json_serializable(self):
         # Unpack before serialization for human readability and consistent format
-        unpacked_data = np.unpackbits(self.data)[:self.problem.num_variables]
+        unpacked_data = np.unpackbits(self.data)[: self.problem.num_variables]
         return unpacked_data.tolist()
 
     @staticmethod
-    def from_json_serializable(problem: Problem[np.ndarray], serialized_data: list[int]) -> MOSCPSolution:
+    def from_json_serializable(
+        problem: Problem[np.ndarray], serialized_data: list[int]
+    ) -> MOSCPSolution:
         # Load the unpacked data, then pack it for internal storage
         unpacked_array = np.array(serialized_data, dtype=np.uint8)
         packed_array = np.packbits(unpacked_array)
@@ -40,7 +43,6 @@ class _MOSCPSolution(Solution[np.ndarray]):
 
 
 class MOSCPProblem(Problem[np.ndarray]):
-
     def __init__(
         self,
         coverage_data: list[list[int]],
@@ -65,9 +67,9 @@ class MOSCPProblem(Problem[np.ndarray]):
             self.coverage_unpacked[item_idx, covering_sets_0based] = 1
 
         # Transpose and Pack the Sets: (num_sets x packed_item_bits)
-        self.set_coverage_packed = np.array([
-            np.packbits(self.coverage_unpacked[:, j]) for j in range(num_sets)
-        ])
+        self.set_coverage_packed = np.array(
+            [np.packbits(self.coverage_unpacked[:, j]) for j in range(num_sets)]
+        )
 
         # Create the ALL_COVERED mask (a bit vector of all 1s for the item space)
         # Useful in case we have num_items % 8 != 0
@@ -83,13 +85,19 @@ class MOSCPProblem(Problem[np.ndarray]):
 
             while uncovered_items:
                 item_idx = random.choice(list(uncovered_items))
-                possible_sets_indices = np.where(self.coverage_unpacked[item_idx] == 1)[0]
+                possible_sets_indices = np.where(self.coverage_unpacked[item_idx] == 1)[
+                    0
+                ]
 
                 if not possible_sets_indices.size:
-                    raise RuntimeError("Infeasible instance: An item cannot be covered.")
+                    raise RuntimeError(
+                        "Infeasible instance: An item cannot be covered."
+                    )
 
                 # Only consider sets that haven't been selected yet for a random choice
-                unselected_sets = [s for s in possible_sets_indices if solution_data_unpacked[s] == 0]
+                unselected_sets = [
+                    s for s in possible_sets_indices if solution_data_unpacked[s] == 0
+                ]
                 if not unselected_sets:
                     break
 

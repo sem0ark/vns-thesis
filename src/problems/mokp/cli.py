@@ -6,6 +6,7 @@ from typing import Callable, Iterable, cast
 import numpy as np
 from pymoo.algorithms.moo.nsga2 import NSGA2
 from pymoo.algorithms.moo.spea2 import SPEA2
+from pymoo.operators.sampling.rnd import BinaryRandomSampling
 from pymoo.optimize import minimize
 from pymoo.termination.max_time import TimeBasedTermination
 from pymoo.util.nds.non_dominated_sorting import NonDominatedSorting
@@ -13,13 +14,7 @@ from pymoo.util.nds.non_dominated_sorting import NonDominatedSorting
 from src.cli.cli_utils import CLI, InstanceRunner, RunConfig
 from src.cli.shared import Metadata, SavedRun, SavedSolution
 from src.problems.mokp.problem import MOKPProblem, MOKPPymoo
-from src.problems.mokp.vns import (
-    add_remove_op,
-    swap_op,
-    shake_add_remove,
-    shake_swap,
-)
-
+from src.problems.mokp.vns import add_remove_op, shake_add_remove, shake_swap, swap_op
 from src.problems.vns_runner_utils import run_vns_optimizer
 from src.vns.abstract import VNSOptimizerAbstract
 from src.vns.acceptance import AcceptBatch, AcceptBatchSkewed
@@ -31,9 +26,6 @@ from src.vns.local_search import (
     noop,
 )
 from src.vns.optimizer import ElementwiseVNSOptimizer
-
-
-from pymoo.operators.sampling.rnd import BinaryRandomSampling
 
 
 class VNSInstanceRunner(InstanceRunner):

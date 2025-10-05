@@ -334,7 +334,9 @@ def calculate_metrics(
             avg_epsilon = np.nanmean([m.epsilon for m in run_metrics_list])
             avg_hypervolume = np.nanmean([m.hypervolume for m in run_metrics_list])
             avg_r_metric = np.nanmean([m.r_metric for m in run_metrics_list])
-            avg_igd = np.nanmean([m.inverted_generational_distance for m in run_metrics_list])
+            avg_igd = np.nanmean(
+                [m.inverted_generational_distance for m in run_metrics_list]
+            )
 
             metrics_results[run_name] = Metrics(
                 epsilon=float(avg_epsilon),
@@ -389,9 +391,7 @@ def export_table(
                 "Error: Please install 'xlsxwriter' (or 'openpyxl') for Excel export."
             )
             df.to_csv(output_path.with_suffix(".csv"), index=False)
-            print(
-                f"Falling back to CSV export: {output_path.with_suffix('.csv')}"
-            )
+            print(f"Falling back to CSV export: {output_path.with_suffix('.csv')}")
     else:
         raise ValueError(
             f"Unsupported export format: {output_path.suffix}. Use .csv or .xlsx."
@@ -435,9 +435,7 @@ def prepare_coverage_table_data(
             row.append(f"{coverage:.4f}" if not np.isnan(coverage) else "N/A")
         table_data.append(row)
 
-    print(
-        f"(Hiding runs completely dominated by another run: {list(dominated_runs)})"
-    )
+    print(f"(Hiding runs completely dominated by another run: {list(dominated_runs)})")
 
     return headers, table_data
 
@@ -554,11 +552,13 @@ def display_metrics(
                 coverage_table_data, headers=coverage_headers, tablefmt="fancy_grid"
             )
         )
-        
+
         if output_file:
             base_name = output_file.stem
             suffix = output_file.suffix
-            coverage_export_path = output_file.with_name(f"{base_name}_coverage{suffix}")
+            coverage_export_path = output_file.with_name(
+                f"{base_name}_coverage{suffix}"
+            )
             export_table(
                 table_data=[
                     [row[0]]
@@ -579,7 +579,7 @@ def plot_runs(
     all_runs_grouped: Dict[str, List[SavedRun]],
     filtered_runs_grouped: dict[str, list[SavedRun]],
     objective_names: list[str],
-    plot_lines = True,
+    plot_lines=True,
 ) -> None:
     print("""Plotting the results:
 Controls:

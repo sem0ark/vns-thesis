@@ -36,7 +36,9 @@ class _MOACBWSolution(Solution[np.ndarray]):
         return self.data.tolist()
 
     @staticmethod
-    def from_json_serializable(problem: Problem[np.ndarray], serialized_data: list[int]) -> MOACBWSolution:
+    def from_json_serializable(
+        problem: Problem[np.ndarray], serialized_data: list[int]
+    ) -> MOACBWSolution:
         return _MOACBWSolution(np.array(serialized_data), problem)
 
 

@@ -1,20 +1,21 @@
 import glob
 import json
+import logging
 from collections import defaultdict
 from dataclasses import asdict, dataclass
-import logging
 from pathlib import Path
 from typing import Callable, Iterable
 
 import click
 
+from src.cli.filter_param import ClickFilterExpression, FilterExpression
 from src.cli.metrics import display_metrics, plot_runs
 from src.cli.shared import Metadata, SavedRun, SavedSolution
 from src.cli.utils import parse_time_string
 from src.vns.abstract import Problem
 
-
 logger = logging.getLogger()
+
 
 def setup_logging(level=logging.INFO):
     root_logger = logging.getLogger()
@@ -43,16 +44,20 @@ def _load_runs(
     """
     Loads saved run files for a given instance, returning the latest version of each unique configuration.
     """
-    all_files = root_folder.glob(f"{problem_name}_{instance_name}*.json", case_sensitive=False)
+    all_files = root_folder.glob(
+        f"{problem_name}_{instance_name}*.json", case_sensitive=False
+    )
 
     runs_by_name = defaultdict(list)
     for file_path in all_files:
-        
         try:
             with open(file_path, "r") as f:
                 data = json.load(f)
                 metadata = Metadata(**data["metadata"])
-                if metadata.instance_name.lower() != instance_name.lower() or metadata.problem_name.lower() != problem_name.lower():
+                if (
+                    metadata.instance_name.lower() != instance_name.lower()
+                    or metadata.problem_name.lower() != problem_name.lower()
+                ):
                     click.echo(
                         f"Unexpected metadata for {file_path}: "
                         f"got ({metadata.problem_name}, {metadata.instance_name}), "
@@ -70,7 +75,9 @@ def _load_runs(
                 ]
                 del data
 
-            config_name = f"{metadata.name} v{metadata.version} {int(metadata.run_time_seconds)}s"
+            config_name = (
+                f"{metadata.name} v{metadata.version} {int(metadata.run_time_seconds)}s"
+            )
             run = SavedRun(metadata=metadata, solutions=solutions)
 
             runs_by_name[config_name].append(run)
@@ -84,7 +91,7 @@ def _load_runs(
 
 def _filter_runs(
     runs_grouped: dict[str, list[SavedRun]],
-    filter_string: str = "",
+    filter_expression: FilterExpression,
     select_latest_only: bool = False,
 ) -> dict[str, list[SavedRun]]:
     """
@@ -93,7 +100,7 @@ def _filter_runs(
     runs_filtered = defaultdict(list)
 
     for config_name, runs in runs_grouped.items():
-        if not is_applicable_to_filter(config_name, filter_string):
+        if not filter_expression.is_match(config_name):
             continue
 
         for run in runs:
@@ -123,8 +130,9 @@ def common_options(f):
     f = click.option(
         "-f",
         "--filter-string",
+        type=ClickFilterExpression(),
         default="",
-        help="Config name parts to match (e.g., 'vns,k1' will match 'vns k1 type 1', 'k2 vns type 2', etc.)",
+        help="Boolean filter expression for config names (e.g., '(vns or nsga2) and 120s').",
     )(f)
 
     return f
@@ -145,15 +153,6 @@ class InstanceRunner:
         raise NotImplementedError()
 
 
-def is_applicable_to_filter(name: str, filter_string: str):
-    filter_string = filter_string.strip().lower()
-    split_name = name.strip().lower().split()
-    return not filter_string or any(
-        all(f.strip() in split_name for f in group.split(","))
-        for group in filter_string.split(" or ")
-    )
-
-
 class CLI:
     def __init__(
         self,
@@ -169,7 +168,7 @@ class CLI:
 
         self.storage_folder.mkdir(exist_ok=True, parents=True)
 
-    def _execute_run_logic(self, instance: str, max_time: str, filter_string: str):
+    def _execute_run_logic(self, instance: str, max_time: str, filter_expression: FilterExpression):
         """Contains the logic for running optimizations and saving results."""
         run_time_seconds = parse_time_string(max_time)
 
@@ -192,7 +191,7 @@ class CLI:
                 config_name: func
                 for runner in self.runners
                 for config_name, func in runner(configuration).get_variants()
-                if is_applicable_to_filter(config_name, filter_string)
+                if filter_expression.is_match(config_name)
             }
 
             click.echo("-" * 50)
@@ -222,7 +221,7 @@ class CLI:
     def _execute_plot_logic(
         self,
         instance: str,
-        filter_string: str,
+        filter_expression: FilterExpression,
         lines: bool,
     ):
         """Contains the logic for displaying optimization runs."""
@@ -236,10 +235,10 @@ class CLI:
         )
 
         all_runs = _load_runs(self.storage_folder, self.problem_name, instance_name)
-        runs_to_show = _filter_runs(all_runs, filter_string)
+        runs_to_show = _filter_runs(all_runs, filter_expression)
 
         if not runs_to_show:
-            click.echo(f"No runs matched the filters '{filter_string}'.")
+            click.echo(f"No runs matched the filters '{filter_expression}'.")
             return
 
         plot_runs(
@@ -255,11 +254,10 @@ class CLI:
         instance: str,
         unary: bool,
         coverage: bool,
-        filter_string: str,
+        filter_expression: FilterExpression,
         output_file: Path | None,
     ):
         """Contains the logic for loading and displaying metrics."""
-
 
         instance_paths = sorted(glob.glob(instance))
         if not instance_paths:
@@ -277,14 +275,16 @@ class CLI:
             )
 
             all_runs = _load_runs(self.storage_folder, self.problem_name, instance_name)
-            runs_to_show = _filter_runs(all_runs, filter_string)
+            runs_to_show = _filter_runs(all_runs, filter_expression)
 
             if not runs_to_show:
-                click.echo(f"No runs matched the filters '{filter_string}'.")
+                click.echo(f"No runs matched the filters '{filter_expression}'.")
                 return
 
             click.echo("Displaying raw metrics...")
-            display_metrics(instance_path, all_runs, runs_to_show, unary, coverage, output_file)
+            display_metrics(
+                instance_path, all_runs, runs_to_show, unary, coverage, output_file
+            )
 
     def run(self) -> None:
         """Builds and executes the top-level CLI."""
@@ -303,7 +303,7 @@ class CLI:
             required=True,
             help="Maximum execution time (e.g., 30s, 1h).",
         )
-        def run_command(instance: str, filter_string: str, max_time: str):
+        def run_command(instance: str, filter_string: FilterExpression, max_time: str):
             """
             Executes optimization runs for a specified problem and instance(s).
 
@@ -333,7 +333,7 @@ class CLI:
         )
         def plot_command(
             instance: str,
-            filter_string: str,
+            filter_expression: FilterExpression,
             lines: bool,
         ):
             """
@@ -343,20 +343,26 @@ class CLI:
             """
             self._execute_plot_logic(
                 instance,
-                filter_string,
+                filter_expression,
                 lines,
             )
 
         @cli.command(name="metrics", help="Show metrics for saved runs.")
         @common_options
         @click.option(
-            "--unary", is_flag=True, help="Displays a table of independent performance metrics for each configuration."
+            "--unary",
+            is_flag=True,
+            help="Displays a table of independent performance metrics for each configuration.",
         )
         @click.option(
-            "--coverage", is_flag=True, help="Displays a table of 1-1 coverage comparisons."
+            "--coverage",
+            is_flag=True,
+            help="Displays a table of 1-1 coverage comparisons.",
         )
         @click.option(
-            "--export", is_flag=True, help="Export instance-specific metrics data in a common JSON format for multi-dataset comparison."
+            "--export",
+            is_flag=True,
+            help="Export instance-specific metrics data in a common JSON format for multi-dataset comparison.",
         )
         @click.option(
             "-o",
@@ -367,7 +373,7 @@ class CLI:
         )
         def metrics_command(
             instance: str,
-            filter_string: str,
+            filter_expression: FilterExpression,
             unary: bool,
             coverage: bool,
             output_file: Path | None,
@@ -381,7 +387,7 @@ class CLI:
                 instance,
                 unary,
                 coverage,
-                filter_string,
+                filter_expression,
                 output_file,
             )
 

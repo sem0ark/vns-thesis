@@ -47,7 +47,9 @@ class ElementwiseVNSOptimizer[T](VNSOptimizerAbstract[T]):
                         yield None
                         continue
 
-                    accepted = accepted or self.acceptance_criterion.accept(intensified_solution)
+                    accepted = accepted or self.acceptance_criterion.accept(
+                        intensified_solution
+                    )
 
                 k = 0 if accepted else k + 1
                 yield accepted

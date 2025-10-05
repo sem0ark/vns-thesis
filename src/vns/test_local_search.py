@@ -122,9 +122,7 @@ def test_noop_returns_initial_solution(initial_solution_single):
         ),  # No improvement found, yield initial
     ],
 )
-def test_first_improvement_quick(
-    objective_index, initial_sol, operator, expected_id
-):
+def test_first_improvement_quick(objective_index, initial_sol, operator, expected_id):
     search_func = first_improvement_quick(operator, objective_index)
     results = list(search_func(initial_sol))
     assert len(results) == 1
@@ -320,9 +318,7 @@ VND_LEVELS = [
         (Solution((11.0, 11.0), 11), VND_LEVELS, 11),
     ],
 )
-def test_composite_vnd_flow(
-    initial_sol, search_functions, expected_final_id
-):
+def test_composite_vnd_flow(initial_sol, search_functions, expected_final_id):
     """
     Tests the full VND flow, ensuring correct level resetting and incrementing
     based on the strict dominance comparison, and asserting the final solution.

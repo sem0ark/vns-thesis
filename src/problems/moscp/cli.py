@@ -37,9 +37,7 @@ class VNSInstanceRunner(InstanceRunner):
             ("batch", AcceptBatch()),
             (
                 "skewed",
-                AcceptBatchSkewed(
-                    [5.0, 5.0], MOSCPProblem.calculate_solution_distance
-                ),
+                AcceptBatchSkewed([5.0, 5.0], MOSCPProblem.calculate_solution_distance),
             ),
         ]
 

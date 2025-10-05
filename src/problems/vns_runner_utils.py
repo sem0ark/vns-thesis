@@ -26,7 +26,7 @@ def run_vns_optimizer(
     improved_in_cycle = False
     iteration_actual = 1
     optimizer.reset()
-    
+
     start_time = time.time()
     for iteration, improved in enumerate(optimizer.optimize(), 1):
         elapsed_time = time.time() - start_time

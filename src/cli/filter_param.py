@@ -1,5 +1,6 @@
-from typing import Any, Optional
 import re
+from typing import Any, Optional
+
 import click
 
 
@@ -46,6 +47,7 @@ class OrNode(FilterNode):
         """OR matches if at least one child node matches."""
         return any(child.is_match(config_tags) for child in self.children)
 
+
 class NotNode(FilterNode):
     """Represents an 'NOT' operation (internal node)."""
 
@@ -56,11 +58,13 @@ class NotNode(FilterNode):
         """NOT matches if at child node does not match."""
         return not self.child.is_match(config_tags)
 
+
 class FilterExpression:
     """The result object returned by the Click custom type."""
 
-    def __init__(self, root_node: FilterNode | None):
+    def __init__(self, root_node: FilterNode | None, initial_string: str = ""):
         self.root = root_node
+        self.initial_string = initial_string
 
     def is_match(self, config_name: str) -> bool:
         """
@@ -75,6 +79,9 @@ class FilterExpression:
 
         return self.root.is_match(config_tags)
 
+    def __repr__(self) -> str:
+        return f"Filter({self.initial_string.lower()})"
+
 
 def _parse_expression(tokens: list[FilterNode | str]) -> FilterNode:
     """
@@ -84,22 +91,48 @@ def _parse_expression(tokens: list[FilterNode | str]) -> FilterNode:
     if not tokens:
         raise ValueError("Malformed filter expression: Empty expression.")
 
+    # Resolve 'NOT' operations
+    i = 0
+    while i < len(tokens):
+        if tokens[i] == "not":
+            if i == len(tokens) - 1:
+                raise ValueError(
+                    "Malformed filter expression: 'not' requires an operand."
+                )
+
+            op1 = tokens[i + 1]
+            if not isinstance(op1, FilterNode):
+                # Ensure 'not' isn't followed by another operator (e.g., 'not and')
+                raise ValueError(
+                    f"Malformed filter expression: Expected tag/group, found operator '{op1}' after 'not'."
+                )
+
+            new_node = NotNode(op1)
+            tokens = tokens[:i] + [new_node] + tokens[i + 2 :]
+            i = 0
+        else:
+            i += 1
+
     # Resolve 'AND' operations
     i = 0
     while i < len(tokens):
         if tokens[i] == "and":
             if i == 0 or i == len(tokens) - 1:
-                raise click.BadParameter(
+                raise ValueError(
                     "Malformed filter expression: 'and' requires operands."
                 )
 
             op1 = tokens[i - 1]
             if not isinstance(op1, FilterNode):
-                raise ValueError(f"Malformed filter expression: Expected tag/group, found operator '{op1}'.")
+                raise ValueError(
+                    f"Malformed filter expression: Expected tag/group, found operator '{op1}'."
+                )
 
             op2 = tokens[i + 1]
             if not isinstance(op2, FilterNode):
-                raise ValueError(f"Malformed filter expression: Expected tag/group, found operator '{op2}'.")
+                raise ValueError(
+                    f"Malformed filter expression: Expected tag/group, found operator '{op2}'."
+                )
 
             new_node = AndNode([op1, op2])
             tokens = tokens[: i - 1] + [new_node] + tokens[i + 2 :]
@@ -148,7 +181,7 @@ def _tokenize_and_parse(expression: str) -> FilterNode:
         if isinstance(token, str):
             token_lower = token.strip().lower()
 
-            if token_lower in ("(", ")", "and", "or"):
+            if token_lower in ("(", ")", "and", "or", "not"):
                 tokens_processed.append(token_lower)
             elif token_lower:
                 tokens_processed.append(TagNode(token_lower))
@@ -184,16 +217,13 @@ class ClickFilterExpression(click.ParamType):
     ) -> FilterExpression:
         if not isinstance(value, str) or not value.strip():
             # Returns an expression that matches everything if filter is empty
-            return FilterExpression(None)
+            return FilterExpression(None, "")
 
         expression = value.strip()
 
         try:
             root_node = _tokenize_and_parse(expression)
-            return FilterExpression(root_node)
-
-        except click.BadParameter:
-            raise
+            return FilterExpression(root_node, expression)
         except ValueError as e:
             raise click.BadParameter(f"Invalid filter expression syntax: {e}")
 
@@ -213,7 +243,6 @@ class ClickFilterExpression(click.ParamType):
 #         "-f",
 #         "--filter-string",
 #         default="",
-#         # *** Use the custom type here ***
 #         type=ClickFilterExpression(),
 #         help="Boolean filter expression for config names (e.g., '(vns or nsga2) and 120s').",
 #     )(f)

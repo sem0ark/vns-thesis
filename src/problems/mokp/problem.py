@@ -24,7 +24,9 @@ class _MOKPSolution(Solution[np.ndarray]):
         return self.data.tolist()
 
     @staticmethod
-    def from_json_serializable(problem: Problem[np.ndarray], serialized_data: list[int]) -> MOKPSolution:
+    def from_json_serializable(
+        problem: Problem[np.ndarray], serialized_data: list[int]
+    ) -> MOKPSolution:
         return _MOKPSolution(np.array(serialized_data), problem)
 
 

@@ -41,7 +41,10 @@ def example_problem_2d2d() -> MOKPProblem:
 def test_is_feasible_1d(
     example_problem_1d: MOKPProblem, solution_data: np.ndarray, is_feasible: bool
 ):
-    assert example_problem_1d.satisfies_constraints(Solution(solution_data, None)) == is_feasible
+    assert (
+        example_problem_1d.satisfies_constraints(Solution(solution_data, None))
+        == is_feasible
+    )
 
 
 @pytest.mark.parametrize(
@@ -73,7 +76,10 @@ def test_is_feasible_1d(
 def test_is_feasible_2d2d(
     example_problem_2d2d: MOKPProblem, solution_data: np.ndarray, is_feasible: bool
 ):
-    assert example_problem_2d2d.satisfies_constraints(Solution(solution_data, None)) == is_feasible
+    assert (
+        example_problem_2d2d.satisfies_constraints(Solution(solution_data, None))
+        == is_feasible
+    )
 
 
 @pytest.mark.parametrize(
