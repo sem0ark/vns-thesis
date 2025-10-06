@@ -31,19 +31,37 @@ These functions define the neighborhood search phase, which aims to find a stric
 
 The toolkit includes a set of acceptance criteria designed to manage the solution archive, particularly for multi-objective problems where a Pareto front of non-dominated solutions must be maintained. They determine whether a new candidate solution should be accepted into the archive and influence the overall search behavior. All provided implementations assume **minimization** for all objectives.
 
-- **`AcceptBatch`**: This criterion manages the archive (Pareto front) in a **batch-processing style**. The algorithm must **iterate through every solution** in the current front before processing the next one. Accepted solutions are placed into an `upcoming_front`. Once the iteration is complete, the current non-dominated solutions are merged with the accepted ones to form the new front.
+- **`ParetoFront`**: The fundamental archive structure. It maintains a list of **non-dominated solutions** based on the provided comparison function (defaults to standard Pareto dominance).
+    - **Acceptance:** A candidate is accepted if it's not dominated by any current solution. If it dominates any existing solutions, they are pruned immediately.
+    - **Selection (`get_one_current_solution`):** Selects a **random solution** from the front for neighborhood exploration.
 
-- **`AcceptBeam`**: This criterion introduces a **dynamic, beam search-like behavior**. Instead of strict iteration, the algorithm selects a **random solution** from the archive to continue the search. When a new non-dominated solution is found, the archive is **updated immediately** by removing dominated solutions. This provides a more dynamic, less structured search, prioritizing rapid improvement of the current set of solutions.
+- **`AcceptBatch`**: A criterion that wraps a `ParetoFront` and implements a **batch-processing style** iteration.
+    - **Acceptance:** Updates the underlying `true_front` immediately.
+    - **Selection (`get_one_current_solution`):** Iterates through a **snapshot** of the current non-dominated solutions. The algorithm must **process every solution** in the current snapshot before taking a new snapshot of the updated front for the next batch.
 
-- **`AcceptBatchSkewed`**: Implements a **Skewed Acceptance** criterion within the batch-processing framework.
-    - It maintains a main archive (`front`) and a separate **skewed front** (`skewed_front`).
-    - If a new candidate is rejected by the main front, it is then compared against the front using a **skewed objective vector** (the candidate's objectives are skewed by a distance-dependent term). If the skewed candidate is found to be non-dominated, the candidate is added to the `upcoming_skewed_front`.
-    - Solutions for the next iteration are selected first from the main front, then from the skewed front. Both fronts are fully iterated and rebuilt in a batch process when exhausted.
+- **`AcceptBeamWrapped` (and `AcceptBeamSkewed`):** This criterion introduces a **dynamic, beam search-like behavior** by wrapping two `ParetoFront` archives.
+    - **Archives:** Maintains a **Standard Front (`true_front`)** using standard Pareto dominance (for final results) and a **Custom Front (`custom_front`)** using a user-provided comparison (e.g., skewed dominance) for acceptance and selection.
+    - **Acceptance:** A candidate is accepted if it's non-dominated by **both** the standard and the custom front criteria.
+    - **Selection (`get_one_current_solution`):** Selects a **random solution** from the **Custom Front** (`custom_front`) to continue the search. The `AcceptBeamSkewed` class specializes this by using the **Skewed Acceptance** logic (based on the `make_skewed_comparator` function) for the `custom_front`.
 
-- **`AcceptBeamSkewed`**: These criteria combine the concepts of **beam search and skewed acceptance**.
-    - It maintains the main non-dominated archive (`front`) and a **buffer** of skewed-accepted solutions (`buffer`).
-    - If a new candidate is rejected by the main front, it is compared against the front using a **skewed objective vector** derived from solutions in the *main front*. If this skewed comparison is favorable (not strictly better than the skewed solution's original objective), the candidate is added to the `buffer`.
-    - The next solution for the search is chosen **randomly** from the union of the main front and the skewed buffer, encouraging exploration of promising but non-Pareto regions of the solution space.
+- **`AcceptBatchWrapped` (and `AcceptBatchSkewed`):** This criterion implements a **batch-processing style** by wrapping two `ParetoFront` archives and utilizing a snapshot.
+    - **Archives:** Maintains a **Standard Front (`true_front`)** and a **Custom Front (`custom_front`)**.
+    - **Acceptance:** A candidate is accepted if it's non-dominated by **both** the standard and the custom front criteria.
+    - **Selection (`get_one_current_solution`):** Iterates through a **snapshot** of the solutions from the **Custom Front** (`custom_front`). Once the snapshot is exhausted, a new snapshot is taken. The `AcceptBatchSkewed` class specializes this by using the **Skewed Acceptance** logic for the `custom_front`.
+
+### Skewed Acceptance Mechanism
+
+The **Skewed Acceptance** used in `AcceptBeamSkewed` and `AcceptBatchSkewed` is implemented via the `make_skewed_comparator` function.
+
+This mechanism modifies the standard dominance check by calculating a **skewed objective vector** for the candidate solution $x$ before comparison:
+
+$$f'_i(x) = f_i(x) - \alpha_i \times \text{distance}(x, y)$$
+
+This skews the objective value **favorably** (since we are minimizing and subtracting a positive penalty) for solutions that are **far** from the existing solutions $y$ in the front, encouraging the search to explore sparsely populated regions of the solution space.
+
+- $f_i(x)$: The true objective value.
+- $\alpha_i$: The weight parameter (skewing magnitude).
+- $\text{distance}(x, y)$: The distance between the candidate $x$ and a solution $y$ in the current front, measured in the solution space.
 
 
 ## Getting Started
