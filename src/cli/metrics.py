@@ -16,7 +16,6 @@ from pymoo.indicators.igd import IGD
 from src.cli.shared import SavedRun
 from src.vns.acceptance import ParetoFront
 
-
 COMMON_METRICS_FOLDER = Path(__file__).parent.parent.parent / "metrics"
 
 
@@ -541,14 +540,17 @@ def display_unary_metrics(
             COMMON_METRICS_FOLDER / f"{problem_name}_{instance_name}_unary_metrics.json"
         )
         with open(json_output_path, mode="w") as f:
-            json.dump({
-                "metadata": {
-                    "instance_name": instance_name,
-                    "problem_name": problem_name,
+            json.dump(
+                {
+                    "metadata": {
+                        "instance_name": instance_name,
+                        "problem_name": problem_name,
+                    },
+                    "metrics": {k: asdict(entry) for k, entry in metrics.items()},
                 },
-                "metrics": {k: asdict(entry) for k, entry in metrics.items()},
-            }, f)
-        
+                f,
+            )
+
         print(f"Saved unary metrics file to {json_output_path}.")
 
 
