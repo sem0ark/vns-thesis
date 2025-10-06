@@ -1,4 +1,4 @@
-from typing import Any, Callable
+from typing import Any
 
 import pytest
 
@@ -408,7 +408,6 @@ def test_clear_resets_both_internal_structures():
 
     assert not criterion.true_front.front
     assert not criterion.front_snapshot
-
 
 
 def test_accept_updates_true_front_and_initial_snapshot():

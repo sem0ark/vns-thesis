@@ -112,7 +112,7 @@ def _filter_runs(
     runs_filtered = defaultdict(list)
 
     for config_name, runs in runs_grouped.items():
-        if "REFERENCE-FRONT" in config_name: # HACK: skip prepared reference front run
+        if "REFERENCE-FRONT" in config_name:  # HACK: skip prepared reference front run
             continue
 
         if not filter_expression.is_match(config_name):
@@ -223,7 +223,9 @@ class CLI:
         and updates the instance's non-dominated reference front.
         """
 
-        instance_paths = sorted(set(instance for p in instance_patterns for instance in glob.glob(p)))
+        instance_paths = sorted(
+            set(instance for p in instance_patterns for instance in glob.glob(p))
+        )
         if not instance_paths:
             click.echo(
                 f"Warning: No files found matching patterns {instance_patterns}. Exiting..."
@@ -281,7 +283,9 @@ class CLI:
                             destination_path = self.archive_folder / file_path.name
                             shutil.move(file_path, destination_path)
                             run.metadata.file_path = destination_path
-                            click.echo(f"Moved {run.metadata.instance_name} to {destination_path}")
+                            click.echo(
+                                f"Moved {run.metadata.instance_name} to {destination_path}"
+                            )
 
             if not valid_runs_for_merge:
                 click.echo("Warning: no available valid runs for merge. Exiting.")
@@ -396,7 +400,9 @@ class CLI:
     ):
         """Contains the logic for validating saved run solutions."""
 
-        instance_paths = sorted(set(instance for p in instance_patterns for instance in glob.glob(p)))
+        instance_paths = sorted(
+            set(instance for p in instance_patterns for instance in glob.glob(p))
+        )
         if not instance_paths:
             click.echo(
                 f"Warning: No files found matching patterns {instance_patterns}. Exiting..."
@@ -456,12 +462,17 @@ class CLI:
             click.echo("-" * 50)
 
     def _execute_run_logic(
-        self, instance_patterns: list[str], max_time: str, filter_expression: FilterExpression
+        self,
+        instance_patterns: list[str],
+        max_time: str,
+        filter_expression: FilterExpression,
     ):
         """Contains the logic for running optimizations and saving results."""
         run_time_seconds = parse_time_string(max_time)
 
-        instance_paths = sorted(set(instance for p in instance_patterns for instance in glob.glob(p)))
+        instance_paths = sorted(
+            set(instance for p in instance_patterns for instance in glob.glob(p))
+        )
         if not instance_paths:
             click.echo(
                 f"Warning: No files found matching patterns {instance_patterns}. Exiting..."
@@ -558,7 +569,9 @@ class CLI:
     ):
         """Contains the logic for loading and displaying metrics."""
 
-        instance_paths = sorted(set(instance for p in instance_patterns for instance in glob.glob(p)))
+        instance_paths = sorted(
+            set(instance for p in instance_patterns for instance in glob.glob(p))
+        )
         if not instance_paths:
             click.echo(
                 f"Warning: No files found matching patterns {instance_patterns}. Exiting..."
@@ -608,7 +621,9 @@ class CLI:
             required=True,
             help="Maximum execution time (e.g., 30s, 1h).",
         )
-        def run_command(instance: list[str], filter_string: FilterExpression, max_time: str):
+        def run_command(
+            instance: list[str], filter_string: FilterExpression, max_time: str
+        ):
             """
             Executes optimization runs for a specified problem and instance(s).
 
@@ -722,7 +737,9 @@ class CLI:
             is_flag=True,
             help="Additionally move all matched files into archive folder.",
         )
-        def archive_command(instance: list[str], filter_string: FilterExpression, move: bool):
+        def archive_command(
+            instance: list[str], filter_string: FilterExpression, move: bool
+        ):
             """
             Validates saved solutions. Valid runs are moved to the archive folder.
             Solutions from the archived runs are merged into a single reference front file.
