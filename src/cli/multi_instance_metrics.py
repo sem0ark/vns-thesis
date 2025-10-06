@@ -13,12 +13,14 @@ import matplotlib.pyplot as plt
 
 from src.cli.filter_param import ClickFilterExpression, FilterExpression
 
-METRIC_KEYS = [
-    "hypervolume",
-    "epsilon",
-    "inverted_generational_distance",
-    "r_metric",
-]
+METRIC_MAPPING = {
+    "hypervolume": "relative hypervolume loss",
+    "epsilon": "multiplicative epsilon",
+    "inverted_generational_distance": "IGD",
+    "r_metric": "R2 metric",
+}
+METRIC_KEYS = list(METRIC_MAPPING.keys())
+METRIC_NAMES = list(METRIC_MAPPING.values())
 
 
 def load_metrics_data(file_paths: list[Path]) -> dict[str, dict[str, dict[str, float]]]:
@@ -65,7 +67,7 @@ def load_metrics_data(file_paths: list[Path]) -> dict[str, dict[str, dict[str, f
 
 def calculate_average_metrics(
     all_metrics: dict[str, dict[str, dict[str, float]]],
-    filters: list[FilterExpression],
+    filters_info: list[tuple[str, FilterExpression]],
     metric_keys: list[str] = METRIC_KEYS,
 ) -> pd.DataFrame:
     """
@@ -74,16 +76,13 @@ def calculate_average_metrics(
 
     The resulting DataFrame has:
     - Index: MultiIndex (Instance, Metric_Key)
-    - Columns: Filter expressions
+    - Columns: Filter names
     - Values: Average metric value for matched configs
     """
-
-    # results will store data as: { (Instance, Metric_Key): {Filter_Str: Avg_Value} }
     results: dict[tuple[str, str], dict[str, float]] = defaultdict(dict)
 
     for file_name, instance_data in all_metrics.items():
-        for filter_exp in filters:
-            filter_str = str(filter_exp)
+        for filter_name, filter_exp in filters_info:
 
             matched_values_by_metric: dict[str, list[float]] = {
                 key: [] for key in metric_keys
@@ -101,9 +100,9 @@ def calculate_average_metrics(
                 if matched_values:
                     average_value = sum(matched_values) / len(matched_values)
                 else:
-                    average_value = float("nan")  # Use NaN for no matches
+                    average_value = float("nan")
 
-                results[(file_name, metric_key)][filter_str] = average_value
+                results[(file_name, metric_key)][filter_name] = average_value
 
     df = pd.DataFrame.from_dict(results, orient="index")
     df.index = pd.MultiIndex.from_tuples(df.index, names=["Instance", "Metric_Key"])
@@ -115,29 +114,28 @@ def calculate_average_metrics(
 
 def perform_nemenyi_test_on_metrics(
     avg_df: pd.DataFrame, metric_keys: list[str], alpha: float = 0.05
-) -> dict[str, dict[str, Any]]: # Changed return type to Any for dict values
-    """
-    Performs the Friedman test and, if rejected, the Nemenyi post-hoc test
-    for each specified metric key using the average metrics DataFrame.
-    """
+) -> dict[str, dict[str, Any]]:
+
     results_by_metric: dict[str, dict[str, Any]] = {}
 
     for metric_key in metric_keys:
-        print(f"\n--- Statistical Comparison for: {metric_key} ---")
+        display_name = METRIC_MAPPING.get(metric_key, metric_key)
+        print(f"\n--- Statistical Comparison for: {display_name} ---")
 
         try:
             metric_data = avg_df.xs(metric_key, level="Metric_Key", drop_level=True)
         except KeyError:
-            print(f"Skipping {metric_key}: No data found in DataFrame.")
+            print(f"Skipping {display_name}: No data found in DataFrame.")
             continue
 
+        # Ranks: ascending=True because all metrics are assumed to be minimized (lower is better)
         ranks = metric_data.rank(axis=1, method="average", ascending=True)
 
         rank_array = np.asarray(ranks.dropna())
 
         if rank_array.shape[0] < 2 or rank_array.shape[1] < 2:
             print(
-                f"Skipping {metric_key}: Insufficient data ({rank_array.shape[0]} instances, {rank_array.shape[1]} methods)."
+                f"Skipping {display_name}: Insufficient data ({rank_array.shape[0]} instances, {rank_array.shape[1]} methods)."
             )
             continue
 
@@ -150,7 +148,7 @@ def perform_nemenyi_test_on_metrics(
         )
 
         if not reject_h0:
-            results_by_metric[metric_key] = {
+            results_by_metric[display_name] = {
                 "friedman_p": p,
                 "rejected": False,
                 "nemenyi_scores": "Not performed (H0 not rejected)",
@@ -163,7 +161,7 @@ def perform_nemenyi_test_on_metrics(
         nemenyi_scores = nemenyi_scores.set_axis(labels, axis="columns")
         nemenyi_scores = nemenyi_scores.set_axis(labels, axis="rows")
 
-        results_by_metric[metric_key] = {
+        results_by_metric[display_name] = {
             "friedman_p": p,
             "rejected": True,
             "nemenyi_scores": nemenyi_scores,
@@ -171,10 +169,11 @@ def perform_nemenyi_test_on_metrics(
 
     return results_by_metric
 
+
 def plot_nemenyi_scores(results: dict[str, dict[str, Any]], plot_file: Path):
     """
     Generates and saves a sign-plot of the Nemenyi post-hoc scores for each metric
-    in a 2x2 grid layout and includes a single, centered legend (colorbar).
+    in a single-column (vertical) layout and includes a single, shared colorbar.
     """
     plottable_results = {
         k: v for k, v in results.items() if v.get("rejected", False)
@@ -185,33 +184,29 @@ def plot_nemenyi_scores(results: dict[str, dict[str, Any]], plot_file: Path):
         click.echo("\nNo significant differences found to plot.", err=True)
         return
 
-    nrows, ncols = 2, 2
     fig, axes = plt.subplots(
-        nrows, ncols, 
-        figsize=(16, 10)
+        1, num_plottable,
+        figsize=(10 * num_plottable, 10)
     )
-    
-    axes_flat = axes.flatten()
+
+    if num_plottable == 1:
+        axes = [axes]
 
     heatmap_args = {
-        'linewidths': 0.25, 
-        'linecolor': '0.5', 
+        'linewidths': 0.25,
+        'linecolor': '0.5',
         'square': True,
+        'cbar': False,
     }
 
-    for ax, (metric_key, result) in zip(axes_flat, plottable_results.items()):
+    for i, (metric_name, result) in enumerate(plottable_results.items()):
+        ax = axes[i]
         scores: pd.DataFrame = result["nemenyi_scores"]
-
         scikit_posthocs.sign_plot(scores, ax=ax, **heatmap_args)
-        ax.set_title(f"Nemenyi Post-Hoc Test ({metric_key})", fontsize=10)
+        ax.set_title(f"Nemenyi Post-Hoc Test ({metric_name})", fontsize=12)
         ax.tick_params(axis='x', rotation=45)
 
-    for i in range(num_plottable, nrows * ncols):
-        fig.delaxes(axes_flat[i])
-
     try:
-        # Adjust subplot parameters for tight layout and to make room for the colorbar
-        # plt.subplots_adjust(right=0.9, wspace=0.5, hspace=0.7)
         plt.savefig(plot_file, bbox_inches='tight', dpi=300)
         click.echo(f"\nNemenyi sign-plots saved to: {plot_file}")
     except Exception as e:
@@ -241,6 +236,15 @@ def plot_nemenyi_scores(results: dict[str, dict[str, Any]], plot_file: Path):
     help="Boolean filter expression for config names (e.g., '(vns or nsga2) and 120s').",
 )
 @click.option(
+    "-n",
+    "--filter-name",
+    "filter_names",
+    type=str,
+    multiple=True,
+    default=[],
+    help="Names for each filter expression used for logging and plotting.",
+)
+@click.option(
     "-o",
     "--output-file",
     type=click.Path(path_type=Path),
@@ -264,6 +268,7 @@ def plot_nemenyi_scores(results: dict[str, dict[str, Any]], plot_file: Path):
 def compare_metrics(
     input_pattern: str,
     filters: list[FilterExpression],
+    filter_names: list[str],
     output_file: Path | None,
     plot_file: Path | None,
     alpha: float,
@@ -277,16 +282,50 @@ def compare_metrics(
         click.echo(f"Error: No metrics files found matching the pattern '{input_pattern}'. Exiting.")
         return
 
+
+    if len(filter_names) != len(filters):
+        click.echo(
+            "Warning: number of filter names does not correspond to the number of filters. "
+            "Padding missing names with their filter expressions.",
+            err=True
+        )
+        filter_names = list(filter_names)
+        filters = list(filters)
+
+        num_missing = len(filters) - len(filter_names)
+        if num_missing > 0:
+            start_index = len(filter_names)
+            for i in range(start_index, len(filters)):
+                filter_names.append(str(filters[i]))
+        
+        elif num_missing < 0:
+            click.echo(
+                f"Warning: Too many filter names provided ({len(filter_names)}). "
+                f"Truncating names to match the number of filters ({len(filters)}).",
+                err=True
+            )
+            filter_names = filter_names[:len(filters)]
+
+    filter_objects = list(zip(filter_names, filters))
+
+
     click.echo(f"Found {len(file_paths)} files.")
-    click.echo(f"Filters to apply: {[f for f in filters]}")
+    for name, exp in filter_objects:
+        click.echo(f"- {name}: {exp.initial_string}")
 
     all_metrics = load_metrics_data(file_paths)
 
     if not all_metrics:
         click.echo("Error: Failed to load valid metrics data from any file. Exiting.")
         return
+
     try:
-        avg_df = calculate_average_metrics(all_metrics, filters)
+        avg_df = calculate_average_metrics(all_metrics, filter_objects, METRIC_KEYS)
+
+        new_index = avg_df.index.to_frame(index=False)
+        new_index['Metric_Key'] = new_index['Metric_Key'].map(METRIC_MAPPING)
+        avg_df.index = pd.MultiIndex.from_frame(new_index)
+        
     except Exception as e:
         click.echo(
             f"An error occurred during metric calculation: {e}", err=True
@@ -296,10 +335,13 @@ def compare_metrics(
     click.echo("\n--- Averaged Metrics Table (Instance x Metric x Filter) ---")
     print(avg_df.to_string(na_rep="N/A"))
 
+
     statistical_results = perform_nemenyi_test_on_metrics(
-        avg_df, METRIC_KEYS, alpha=alpha
+        avg_df.copy(),
+        METRIC_NAMES, 
+        alpha=alpha
     )
-    
+
     click.echo("\n--- Nemenyi Post-Hoc Results ---")
     for metric, result in statistical_results.items():
         click.echo(f"\nMetric: {metric}")
@@ -318,15 +360,13 @@ def compare_metrics(
                 with pd.ExcelWriter(output_file) as writer:
                     avg_df.to_excel(writer, sheet_name="Average_Metrics")
                     
-                    # Save each Nemenyi matrix to a separate sheet
                     for metric, result in statistical_results.items():
                         if result['rejected']:
-                            sheet_name = f"Nemenyi_{metric}"
+                            sheet_name = f"Nemenyi_{metric.replace(' ', '_')}"
                             result['nemenyi_scores'].to_excel(writer, sheet_name=sheet_name)
-                    
-                click.echo(f"\nResults successfully saved to Excel (Avg Metrics + Nemenyi matrices): {output_file}")
+
+                click.echo(f"Results successfully saved to Excel (Avg Metrics + Nemenyi matrices): {output_file}")
             else:
-                # Default to saving only the average metrics to CSV
                 avg_df.to_csv(output_file)
                 click.echo(f"\nAverage metrics saved to: {output_file}")
 
@@ -337,10 +377,9 @@ def compare_metrics(
             
     if plot_file:
         plot_nemenyi_scores(
-            {k: v for k, v in statistical_results.items() if v.get('rejected', False)},
+            statistical_results,
             plot_file
         )
-
 
 if __name__ == "__main__":
     compare_metrics()
