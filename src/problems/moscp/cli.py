@@ -44,7 +44,7 @@ class VNSInstanceRunner(InstanceRunner):
         local_search_functions = [
             ("noop", noop()),
             *[
-                (f"{search_name}_{op_name}", search_func_factory(op_func))
+                (f"{search_name} {op_name}", search_func_factory(op_func))
                 for (
                     (search_name, search_func_factory),
                     (op_name, op_func),

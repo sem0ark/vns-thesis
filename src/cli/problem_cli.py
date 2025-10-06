@@ -157,6 +157,7 @@ def common_options(f):
         "-i",
         "--instance",
         required=True,
+        multiple=True,
         type=str,
         help="Path pattern (with wildcards) to instance files (for run) or single path (for show).",
     )(f)
@@ -213,7 +214,7 @@ class CLI:
 
     def _execute_archive_logic(
         self,
-        instance: str,
+        instance_patterns: list[str],
         filter_expression: FilterExpression,
         move_runs: bool,
     ):
@@ -221,10 +222,11 @@ class CLI:
         Validates saved runs, moves valid ones to the archive folder,
         and updates the instance's non-dominated reference front.
         """
-        instance_paths = sorted(glob.glob(instance))
+
+        instance_paths = sorted(set(instance for p in instance_patterns for instance in glob.glob(p)))
         if not instance_paths:
             click.echo(
-                f"Warning: No files found matching pattern '{instance}'. Exiting..."
+                f"Warning: No files found matching patterns {instance_patterns}. Exiting..."
             )
             return
 
@@ -389,15 +391,15 @@ class CLI:
 
     def _execute_validate_logic(
         self,
-        instance: str,
+        instance_patterns: list[str],
         filter_expression: FilterExpression,
     ):
         """Contains the logic for validating saved run solutions."""
 
-        instance_paths = sorted(glob.glob(instance))
+        instance_paths = sorted(set(instance for p in instance_patterns for instance in glob.glob(p)))
         if not instance_paths:
             click.echo(
-                f"Warning: No files found matching pattern '{instance}'. Exiting..."
+                f"Warning: No files found matching patterns {instance_patterns}. Exiting..."
             )
             return
 
@@ -454,15 +456,15 @@ class CLI:
             click.echo("-" * 50)
 
     def _execute_run_logic(
-        self, instance: str, max_time: str, filter_expression: FilterExpression
+        self, instance_patterns: list[str], max_time: str, filter_expression: FilterExpression
     ):
         """Contains the logic for running optimizations and saving results."""
         run_time_seconds = parse_time_string(max_time)
 
-        instance_paths = sorted(glob.glob(instance))
+        instance_paths = sorted(set(instance for p in instance_patterns for instance in glob.glob(p)))
         if not instance_paths:
             click.echo(
-                f"Warning: No files found matching pattern '{instance}'. Exiting..."
+                f"Warning: No files found matching patterns {instance_patterns}. Exiting..."
             )
             return
 
@@ -547,7 +549,7 @@ class CLI:
 
     def _execute_metrics_logic(
         self,
-        instance: str,
+        instance_patterns: list[str],
         unary: bool,
         coverage: bool,
         export_to_json: bool,
@@ -556,10 +558,10 @@ class CLI:
     ):
         """Contains the logic for loading and displaying metrics."""
 
-        instance_paths = sorted(glob.glob(instance))
+        instance_paths = sorted(set(instance for p in instance_patterns for instance in glob.glob(p)))
         if not instance_paths:
             click.echo(
-                f"Warning: No files found matching pattern '{instance}'. Exiting..."
+                f"Warning: No files found matching patterns {instance_patterns}. Exiting..."
             )
             return
 
@@ -606,7 +608,7 @@ class CLI:
             required=True,
             help="Maximum execution time (e.g., 30s, 1h).",
         )
-        def run_command(instance: str, filter_string: FilterExpression, max_time: str):
+        def run_command(instance: list[str], filter_string: FilterExpression, max_time: str):
             """
             Executes optimization runs for a specified problem and instance(s).
 
@@ -676,7 +678,7 @@ class CLI:
             help="File path to export metrics (.csv or .xlsx).",
         )
         def metrics_command(
-            instance: str,
+            instance: list[str],
             filter_string: FilterExpression,
             unary: bool,
             coverage: bool,
@@ -701,7 +703,7 @@ class CLI:
             name="validate", help="Validate saved run solutions for correctness."
         )
         @common_options
-        def validate_command(instance: str, filter_string: FilterExpression):
+        def validate_command(instance: list[str], filter_string: FilterExpression):
             """
             Validates saved solutions against the problem's feasibility and objective functions.
             Invalid run files are moved to the quarantine folder.
@@ -720,7 +722,7 @@ class CLI:
             is_flag=True,
             help="Additionally move all matched files into archive folder.",
         )
-        def archive_command(instance: str, filter_string: FilterExpression, move: bool):
+        def archive_command(instance: list[str], filter_string: FilterExpression, move: bool):
             """
             Validates saved solutions. Valid runs are moved to the archive folder.
             Solutions from the archived runs are merged into a single reference front file.
