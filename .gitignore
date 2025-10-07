@@ -2,6 +2,8 @@ runs
 metrics
 *.gz
 *.dat
+*.xlsx
+*.png
 
 # General
 .DS_Store
