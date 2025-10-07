@@ -82,35 +82,24 @@ def merge_runs_to_non_dominated_front(runs: list[SavedRun]) -> np.ndarray:
     return np.unique(np.array(all_objectives), axis=0)
 
 
-def calculate_multiplicative_epsilon(A: np.ndarray, R: np.ndarray) -> float:
+def epsilon_indicator(A, B, additive=False):
     """
     Calculates the multiplicative epsilon indicator.
     Reference: https://davidwalz.github.io/posts/2020/multiobjective-metrics/#Epsilon-indicator
 
-    This indicator is for minimization, where a value closer to 1 is better,
-    and a value of 1 means A is covered by R.
-    The formula is: max_{r in R} min_{a in A} max_i(a_i / r_i).
-
     Args:
         A: The approximation front (a NumPy array).
         R: The reference front (a NumPy array).
+        additive: toggle between additive and multiplicative.
 
     Returns:
-        The multiplicative epsilon indicator value.
+        The epsilon indicator value.
     """
-    if A.size == 0 or R.size == 0:
-        return np.nan
-
-    # A (approximation) dominates R (reference) if the ratio is close to 1
-    # The calculation is for E(A, R), which is the minimum factor to multiply R by
-    # to cover A. This is the definition for minimization when objectives are positive.
-    ratios = np.zeros((R.shape[0], A.shape[0]))
-
-    for j in range(R.shape[0]):
-        for i in range(A.shape[0]):
-            ratios[j, i] = np.max(R[j, :] / A[i, :])
-
-    return np.max(np.min(ratios, axis=1))
+    if additive:
+        r = A[:, np.newaxis, :] - B[np.newaxis, :, :]
+    else:  # multiplicative
+        r = A[:, np.newaxis, :] / B[np.newaxis, :, :]
+    return r.max(axis=2).min(axis=0).max()
 
 
 def _generate_uniform_weights(num_objectives: int, num_weights: int) -> np.ndarray:
@@ -201,19 +190,13 @@ def calculate_coverage(A: np.ndarray, B: np.ndarray) -> float:
 
     # Iterate over all solutions in B (the covered front)
     for b in B:
-        is_b_dominated = False
-
         for a in A:
             is_at_least_as_good = np.all(a <= b + 1e-9)
             is_strictly_better = np.any(a < b - 1e-9)
 
             if is_at_least_as_good and is_strictly_better:
                 num_dominated += 1
-                is_b_dominated = True
                 break
-
-        if is_b_dominated:
-            num_dominated += 1
 
     return num_dominated / B.shape[0]
 
@@ -312,7 +295,7 @@ def calculate_metrics(
             ) / reference_front_hypervolume
 
             # Multiplicative Epsilon. For minimization, smaller is better.
-            epsilon = calculate_multiplicative_epsilon(front, reference_front)
+            epsilon = epsilon_indicator(front, reference_front)
 
             # R2 Unary Indicator. For minimization, smaller is better.
             r_metric = calculate_r2_metric(front, r2_ideal_point, r2_weights)
