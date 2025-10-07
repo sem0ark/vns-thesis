@@ -1,31 +1,128 @@
 # Set of components for VNS and MO-VNS Optimization
 
-This set of utilities provides a a set of components for solving single- and multi-objective optimization problems using a variety of Variable Neighborhood Search (VNS) algorithms. The design allows you to mix and match different components to create and test various heuristic approaches, including those tailored for multi-objective problems like the Multi-objective Knapsack Problem (MOKP).
+This set of utilities provides components for solving single- and multi-objective optimization problems using a variety of **Variable Neighborhood Search (VNS)** algorithms. The design is based on abstract interfaces and interchangeable modules, allowing for rapid development and testing of new heuristic variations.
 
-## Components
+## Components Architecture
 
-The toolkit is built on interchangeable modules, enabling the rapid development of new VNS variations. The core components are:
+The toolkit is built on several key abstract interfaces and one core concrete optimizer:
 
-The `VNSOptimizer` class acts as the main orchestrator, tying all the components together to execute the full VNS algorithm. Its main optimization loop follows a classic VNS structure:
+| Component | Abstract Class/Type | Role |
+| :--- | :--- | :--- |
+| **Problem Definition** | `Problem[T]` | Defines the environment: loads problem instances, handles constraints, generates initial solutions, and provides the $\mathbf{Z}$ objective evaluation function (assumed to be for **minimization**). |
+| **Solution Structure** | `Solution[T]` | A wrapper around problem-specific data (`T`) that links to the `Problem` instance. It provides cached access to the objective vector and defines equality and hashing for comparison. |
+| **Archive/Acceptance** | `AcceptanceCriterion[T]` | Defines the **acceptance rule** and manages the **solution archive**. It decides whether to accept a new solution (e.g., based on dominance for MOO or strict improvement for SOO) and provides the current best solution(s) for the next iteration. |
+| **Search Function** | `SearchFunction` | A `Callable` (generator) representing the local search strategy (e.g., `best_improvement`, `composite/VND`). It takes a `Solution` and yields new solutions (or `None` for time tracking). |
+| **Shaker Function** | `ShakeFunction` | A `Callable` that performs the shake operation. It takes the current solution and the current neighborhood level ($k$) to generate a random starting point for the local search. |
 
-1.  **Shaking**: In each iteration `k`, a shake function (e.g., `shake_swap`) is applied to a solution from the current solution archive. The `shake_function`'s role is to generate a new, sufficiently different starting point for the local search.
+## VNS Optimizer: `ElementwiseVNSOptimizer`
 
-2.  **Local Search**: The shaken solution is passed to a search function. This can be a single local search operator (`best_improvement`) or a composite VND function that systematically explores multiple neighborhoods.
+The `ElementwiseVNSOptimizer` class acts as the main orchestrator, implementing the classic VNS optimization loop. It uses a list of `SearchFunction`s to represent the increasing set of neighborhoods.
 
-3.  **Acceptance**: The local optimum found is then evaluated by the acceptance criterion. The solution is either accepted (and added to the archive/buffer) or rejected. If accepted, the process restarts from a new current solution. If rejected, the algorithm proceeds to a larger neighborhood by increasing `k`.
+The main optimization loop follows a classic **Variable Neighborhood Search** (VNS) structure:
+
+1.  **Selection & Initialization**: The process begins by selecting a `current_solution` from the internal archive managed by the `AcceptanceCriterion`. The neighborhood level $k$ is reset to $0$.
+
+2.  **Shaking**: A shake function (`self.shake_function`) is applied to the `current_solution` using the neighborhood level $k+1$ (to access the next larger neighborhood). This generates a new starting point (`shaken_solution`).
+
+3.  **Local Search (Intensification)**: The `shaken_solution` is passed to the local search function selected by the current neighborhood level ($k$): `self.search_functions[k]`. This search yields `intensified_solution`s.
+
+4.  **Acceptance & Update**:
+  - Each yielded `intensified_solution` is evaluated by the `acceptance_criterion.accept()`.
+  - If **any** local search step leads to an accepted solution (which typically means finding a better local optimum or adding a non-dominated solution to the archive), the `k` level is **reset to 0** (`k = 0`), and the loop proceeds to the next iteration with the improved archive.
+  - If the entire local search (intensification) at level $k$ yields **no improvement** leading to an acceptance, the neighborhood level is **increased** (`k = k + 1`).
+
+The process continues until all neighborhood levels are exhausted ($k \ge k_{\max}$), yielding control (`None`) for external time monitoring and repeating with another solution.
+
+
+Based on the provided code, the file contains a self-contained command-line utility for performing **cross-instance statistical comparison** of optimization algorithm performance metrics. It averages metrics over multiple runs (instances) and uses the **Friedman test** followed by the **Nemenyi post-hoc test** to determine significant differences in algorithm rankings.
+
+Here is the new README section:
+
+### Cross-Instance Analysis: `multi_instance_metrics.py`
+
+The `multi_instance_metrics.py` utility is designed to aggregate and statistically analyze performance metrics across **multiple problem instances** (or multiple runs saved in separate JSON files). It uses non-parametric statistical tests (Friedman and Nemenyi) to rank the performance of different configuration filters.
+
+The core idea is to treat each instance file as a **dataset**, and each filter expression as a **treatment** (algorithm configuration).
+
+#### Usage
+
+The CLI is a single command:
+
+```bash
+python multi_instance_metrics.py [OPTIONS]
+```
+
+#### Key Options
+
+| Option | Shorthand | Type | Description |
+| :--- | :--- | :--- | :--- |
+| **`--input-pattern`** | `-i` | `str` | **Required.** A glob pattern to find the JSON files containing the metrics data (e.g., `'results/metrics/*.json'`). Each matched file is treated as a separate instance/dataset. |
+| **`--filter-expression`** | `-f` | `str` | **Required (multiple).** The boolean filter to select configurations for comparison. **Each unique filter** defines a method/treatment in the statistical test. Use this option multiple times. |
+| **`--filter-name`** | `-n` | `str` | **Optional (multiple).** A user-friendly name for each corresponding filter expression. If not provided, the expressions themselves are used as names. |
+| **`--output-file`** | `-o` | `Path` | Optional path to save the aggregated metrics, Nemenyi p-values, and algorithm rankings. Supports **`.csv`** or **`.xlsx`**. |
+| **`--plot-file`** | `-p` | `Path` | Optional path to save the **Nemenyi sign-plot** (a heatmap visualizing significant differences). |
+| **`--alpha`** | N/A | `float` | Significance level ($\alpha$) for the statistical tests (default: $0.05$). |
+
+#### Example Execution
+
+To compare two groups of algorithms—"VNS-k1" and "NSGA-II"—across all metrics files in the `metrics_output` directory:
+
+```bash
+python multi_instance_metrics.py \
+    -i 'metrics_output/*.json' \
+    -f 'vns and k1 and 30s' -n 'VNS k1 30s run time limit' \
+    -f 'nsga2' -n 'NSGA2 All' \
+    -f 'spea2' -n 'SPEA2 All' \
+    -o 'cross_instance_analysis.xlsx' \
+    -p 'nemenyi_plots.png'
+```
+
+#### Output and Analysis
+
+The tool performs the following steps:
+
+1.  **Averaging**: For each filter, it calculates the **average** metric value across all matched configurations within **each instance file**.
+2.  **Friedman Test**: It applies the non-parametric Friedman test to the **ranks** of the filters across all instances. This determines if there is a statistically significant difference among the compared configurations.
+3.  **Nemenyi Post-Hoc Test**: If the Friedman test finds a significant difference ($\text{p-value} \le \alpha$), the Nemenyi test is performed to identify **which specific pairs** of configurations perform significantly differently.
+4.  **Ranking**: It generates an overall ranking based on the **average rank** achieved by each filter across all instances.
+
+The results are printed to the console and can be exported:
+
+- **Excel Export (`.xlsx`)**: The recommended output format, which generates multiple sheets:
+    - `Average_Metrics`: The raw aggregated average metrics per instance.
+    - `Nemenyi <Metric Short Name>`: The p-value matrix for the Nemenyi test (for metrics where H0 was rejected).
+    - `Ranking <Metric Short Name>`: The final table of Average Rank and Standard Deviation of the ranks.
+- **Plot Export (`-p`)**: Saves a sign-plot (heatmap) that visually indicates which pairs of algorithms are significantly different according to the Nemenyi test.
 
 
 ### Local Search Operators
 
-These functions define the neighborhood search phase, which aims to find a strictly better (dominating) solution in the vicinity of the current one. The search functions are wrappers around neighborhood operators, iterating through the neighborhood to find an improving solution. All comparison functions assume **minimization** for all objectives.
+These functions define the **local search phase** of a Variable Neighborhood Search (VNS) algorithm. They are **higher-order functions** that wrap a provided `NeighborhoodOperator` (or a list of `SearchFunction`s for `composite`) and return a `SearchFunction` (a generator) that executes the search strategy.
 
-#### Single-Objective Local Searches
+All search functions assume **minimization** for the objectives. They support two modes:
 
-- **`noop`**: A null operator for Randomized VNS (RVNS) variants where the local search step is skipped. It simply returns the `initial` solution without any changes.
-- **`best_improvement(operator)`**: Executes a greedy search. It explores the entire neighborhood defined by a `NeighborhoodOperator` and returns the single **best strictly better** solution found. This guarantees the best local improvement but is computationally expensive.
-- **`first_improvement(operator)`**: Implements a repeated descent. It explores the neighborhood and moves to the **first strictly better** near neighbor found. This process repeats until a neighborhood scan yields no improvement. This is typically faster than `best_improvement`.
-- **`first_improvement_quick(operator)`**: Executes a **single scan** of the neighborhood and returns the first strictly improving neighbor found. If no improvement is found in this single scan, the original solution is returned. This is designed for a very fast local search step.
-- **`composite(search_functions)`**: Implements the **Variable Neighborhood Descent (VND)** strategy. It applies a sequence of local search functions (derived from different neighborhood operators). If a local search finds a **strictly better** solution, the entire sequence restarts from the first function ($\text{VND level } k=0$).
+1.  **Multi-Objective**: (When `objective_index` is `None`) Comparison is based on **strict Pareto dominance**.
+2.  **Single-Objective**: (When `objective_index` is specified) Comparison is based on the single objective value.
+
+The search functions use a Python **generator** (`yield None` for intermediate steps) to allow external control (e.g., stopping based on time limits) over potentially long-running local search loops. The final, best solution found is returned last.
+
+
+#### Individual Search Strategies
+
+| Function | Primary Strategy | Objective Mode | Key Behavior |
+| :--- | :--- | :--- | :--- |
+| **`noop`** | **Null Operator** | N/A | Used primarily for **Randomized VNS (RVNS)** variants. It bypasses the local search step, simply yielding and returning the `initial` solution. |
+| **`best_improvement(operator)`** | **Greedy Descent** | SOO / MOO | Repeatedly executes a descent until a local optimum is reached. In each iteration, it explores the **entire neighborhood** defined by the `operator` and moves to the single **best strictly better/dominating** solution found. Computationally expensive but exhaustive. |
+| **`first_improvement(operator)`** | **Repeated Descent** | SOO / MOO | Repeatedly executes a descent until a local optimum is reached. In each iteration, it scans the neighborhood and moves immediately to the **first strictly better/dominating** neighbor encountered. This is typically much faster than `best_improvement`. |
+| **`first_improvement_quick(operator)`**| **Single Scan** | SOO / MOO | Executes a **single scan** of the neighborhood. It returns the first strictly improving neighbor found. If no improvement is found in this single scan, the original solution is yielded and returned. Designed for the fastest possible local search step. |
+
+
+#### Composite Search Strategy
+
+| Function | Primary Strategy | Behavior | Acceptance Condition |
+| :--- | :--- | :--- | :--- |
+| **`composite(search_functions)`** | **Variable Neighborhood Descent (VND)** | Implements the VND metaheuristic using a sequence of local search functions (derived from different neighborhood operators, $k=1, 2, \dots, k_{\max}$). | If a search at level $k$ finds a solution ($\mathbf{x}'$) that **strictly dominates** the current solution ($\mathbf{x}$), $\mathbf{x}$ is updated to $\mathbf{x}'$, and the VND process **restarts** at the first neighborhood level ($\mathbf{k=0}$). Otherwise, the level is incremented ($\mathbf{k \leftarrow k+1}$). |
+
 
 ### Acceptance Criteria
 
@@ -55,7 +152,7 @@ The **Skewed Acceptance** used in `AcceptBeamSkewed` and `AcceptBatchSkewed` is 
 
 This mechanism modifies the standard dominance check by calculating a **skewed objective vector** for the candidate solution $x$ before comparison:
 
-$$f'_i(x) = f_i(x) - \alpha_i \times \text{distance}(x, y)$$
+$$f'_{i, y}(x) = f_i(x) - \alpha_i \times \text{distance}(x, y)$$
 
 This skews the objective value **favorably** (since we are minimizing and subtracting a positive penalty) for solutions that are **far** from the existing solutions $y$ in the front, encouraging the search to explore sparsely populated regions of the solution space.
 
@@ -77,156 +174,122 @@ The updated README description for the CLI functionality, reflecting the new fea
 
 ### CLI Functionality
 
-The main command-line interface (CLI) is accessed via `python ./cli.py` and is divided into two primary sub-commands: **`show`** and **`run`**.
+The main command-line interface (CLI) is accessed via a single entry point (e.g., `python ./cli.py`) and utilizes several specialized top-level commands to manage the optimization workflow.
 
-#### `show`
+All commands that operate on saved run files accept the following crucial global options:
 
-The `show` command is used to analyze results from previously executed optimization runs. It requires an **instance file** (`-i`), and a **maximum execution time** (`-t`) to filter the results.
+| Option | Shorthand | Description | Usage |
+| :--- | :--- | :--- | :--- |
+| `--instance` | `-i` | **Required.** Accepts one or more paths or glob patterns (e.g., `'data/instance*.json'`) to identify the problem instance(s) to process. | `metrics -i 'data/*.json'` |
+| `--filter-string` | `-f` | **Optional.** A boolean expression to select specific configuration runs based on "tags" - whitespace separated elements of a run name (e.g., `'vns and not 30s'`). | `plot -f 'k1 or k3'` |
 
-- `show plot`: Generates an interactive plot showing the Pareto fronts of the filtered runs, including a reference front for comparison.
-    ```bash
-    uv run python ./cli.py show mokp -i ./data/mokp/2KP50-11.json -t 10s plot
-    ```
+### Advanced Filter Expression Logic
 
-- `show metrics`: Displays quantitative performance metrics for the filtered runs. This command now generates **two tables**:
-    1.  **Unary Metrics** (e.g., Epsilon, Hypervolume, IGD, R-Metric).
-    2.  A **1-to-1 Coverage Matrix** $C(A, B)$ comparing the dominance between all run pairs. Runs that are **completely dominated** by another run are **hidden** from the matrix.
+The filter expression (`-f`) now supports a full boolean logic, case-insensitive tags, and operator precedence:
 
-    ```bash
-    uv run python ./cli.py show mokp -i ./data/mokp/2KP50-11.json -t 10s mokp metrics
-    ```
+| Feature | Operator | Example | Description |
+| :--- | :--- | :--- | :--- |
+| **High Precedence** | `NOT` | `not vns` | Negates the tag/expression immediately following it. |
+| **Medium Precedence** | `AND` | `vns and k1` | Matches runs containing **all** specified tags. |
+| **Low Precedence** | `OR` | `nsga2 or spea` | Matches runs containing **at least one** of the specified tags. |
+| **Grouping** | `( )` | `not (k1 or k2)` | Parentheses override standard operator precedence. |
 
-    The `show metrics` command supports exporting the results:
-    - `-o, --output-file <PATH>`: Exports both the Unary Metrics and Coverage Matrix tables to the specified path. It supports **`.csv`** and **`.xlsx`** formats, generating two separate files (e.g., `run_summary_unary.xlsx` and `run_summary_coverage.xlsx`).
+**Example Usage of Filtering:**
 
-    ```bash
-    # Example: Exporting metrics to an Excel file
-    uv run python ./cli.py show mokp -i ... -t 10s metrics -o ./results/run_summary.xlsx
-    ```
+```bash
+# Run all configurations that have 'vns' AND are NOT tagged with '30s'.
+$ python ./cli.py run -i ./data/instance.json -t 60s -f "vns AND NOT 30s"
 
-Both `show` sub-commands can be further refined using the **`-f`** or **`--filter-configs`** option. This option accepts a boolean expression of "tags", in case any run configuration has multiple space-separated parts, e.g. "vns and k2 or nsga2", filters will match runs with names such as "vns test k2", "k2 vns", "nsga pop_200", etc.
+# Plot all runs tagged with 'k1' OR any run tagged with 'nsga2'.
+$ python ./cli.py plot -i ./data/instance.json -f "(k1 or k3) and not batch"
+```
 
-#### `run`
+### Core Commands
 
-The `run` command executes one or more optimization algorithms on a specified problem instance. It requires an instance file (`-i`) and a maximum execution time (`-t`).
+| Command | Purpose | Key Options | Example Usage |
+| :--- | :--- | :--- | :--- |
+| **`run`** | Executes selected optimization configurations on specified instance(s). | `-t, --max-time`: **Required.** Max execution time per run (e.g., `30s`, `1h`). | `run -i 'data/*.json' -t 10m -f 'vns or nsga2'` |
+| **`plot`** | Generates plots of saved Pareto fronts. | `--lines/--no-lines`: Controls whether points are connected by lines (default: `lines`). | `plot -i instance1.json -f 'vns' --no-lines` |
+| **`metrics`** | Displays quantitative performance metrics. | `--unary`, `--coverage`: Flags to display the respective metric tables. | `metrics -i instance1.json --unary --coverage` |
+| **`validate`** | Checks saved solutions for correctness (feasibility and objective function validity). | *(Uses global options)* | `validate -i 'data/*.json'` |
+| **`archive`** | Validates, archives (moves), and merges solutions into a combined **reference Pareto front**. | `--move`: Flag to move matched run files to an archive directory. | `archive -i 'data/*.json' --move` |
 
-  - `run <problem_name>`: Runs all registered configurations for the specified problem **sequentially**.
-    ```bash
-    uv run python ./cli.py run -i ./data/mokp/2KP50-11.json -t 10s mokp
-    ```
-  - Filtering runs: Similar to the `show` command, you can use the `-f` or `--filter-configs` option to run only a subset of algorithms.
-    ```bash
-    uv run python ./cli.py run -i ./data/mokp/2KP50-11.json -t 10s mokp -f "nsga or spea or k3,batch,noop"
-    ```
-    This example would execute three sets of runs: all configurations containing "nsga", all containing "spea", and all containing both "k3" and "batch" and "noop".
+### Detail: The `metrics` Command
 
-Upon completion, the results of each run are saved to a timestamped JSON file in the `./runs` directory, which can then be analyzed with the `show` command.
+The `metrics` command is used for quantitative analysis of saved optimization runs.
+
+- `--unary`: Displays a table of **independent performance metrics** (e.g., Epsilon, Hypervolume, IGD, R2 Metric) for each configuration.
+- `--coverage`: Displays a table of **1-to-1 coverage comparisons** (e.g., $C(A, B)$) between all selected configurations.
+- `--export`: Exports instance-specific metrics data into a common JSON format suitable for cross-instance comparison tools.
+- `-o, --output-file <PATH>`: Exports the calculated unary and coverage metrics to a file (supports `.csv` or `.xlsx`). The Excel format (`.xlsx`) is recommended as it can contain both tables.
+
+
 
 ## Writing and Registering a Custom Problem
 
-To add a new problem and its corresponding algorithms to the CLI, you need to follow a structured approach that integrates with the existing framework. This involves defining the problem, implementing its solutions and evaluation logic, and registering the optimization runners.
+To add a new optimization problem (e.g., a new variant of Knapsack or TSP) and its corresponding algorithms to the CLI, you need to follow a structured approach based on inheritance and concrete runner classes.
 
 ### Step 1: Define the Problem and Solution Classes
 
-First, create a new module (e.g., `src/examples/my_problem.py`) to define the problem. Your problem class must inherit from `Problem`, and its solution class must inherit from `Solution`. This ensures compatibility with the VNS framework.
+First, define the problem's abstract representation. Your concrete classes must inherit from the framework's abstract types.
+
+1.  **Solution**: Implement a subclass of `Solution[T]`. This class must define how its problem-specific data (`T`, e.g., a `numpy` array for MOKP) is **hashed** (`get_hash`) for archive storage and how it is **serialized** (`to_json_serializable`).
+2.  **Problem**: Implement a subclass of `Problem[T]`. This class must define the instance loading (`load`), the **objective evaluation** (`evaluate_solution`), and the **constraint check** (`satisfies_constraints`).
+
+**Example (MOKP):**
 
 ```python
-# src/examples/my_problem.py
+# MOKPProblem loads instance data, checks constraints, and returns
+# objectives (negated for maximization to fit the framework's minimization)
+class MOKPProblem(Problem[np.ndarray]):
+    # ... implementation of load, satisfies_constraints, and evaluate_solution
+    pass
 
-from src.vns.abstract import Problem, Solution
+# _MOKPSolution handles hashing the numpy data and serialization
+class _MOKPSolution(Solution[np.ndarray]):
+    def get_hash(self) -> int:
+        return xxhash.xxh64().update(self.data.tobytes()).intdigest()
 
-class MyProblemSolution(Solution):
-    ... # Implement data storage and equals() method
-
-class MyProblem(Problem):
-    def __init__(self):
-        super().__init__(self.evaluate, self.generate_initial_solutions)
-
-    def evaluate(self, solution: MyProblemSolution) -> tuple[float, ...]:
-        ... # Implement your objective function logic
-
-    def generate_initial_solutions(self, num_solutions) -> Iterable[MyProblemSolution]:
-        ... # Implement logic to create initial solutions
-
+    def to_json_serializable(self):
+        return self.data.tolist()
 ```
 
-### Step 2: Implement the Optimization Runners
+### Step 2: Implement the Algorithm Runners
 
-Next, create the functions that will act as the optimization runners for your problem. A runner is a function that takes an `instance_path` and `run_time` and returns a `SavedRun` object containing the results. You can implement any algorithm you choose, such as VNS, GA, or a custom heuristic.
+For each set of algorithms (e.g., VNS variants, Pymoo algorithms), implement a concrete **`InstanceRunner`** subclass. These classes define the actual algorithms to be tested on the problem.
 
-```python
-# src/examples/my_problem.py
+#### A. The VNS Runner (`VNSInstanceRunner`)
 
-from src.cli.cli import SavedRun
-from src.vns.abstract import VNSConfig
-# Import your problem and solution classes
+This runner uses the VNS framework components to generate a large list of VNS variations.
 
-def my_custom_solver(instance_path: str, run_seconds: float) -> SavedRun:
-    # 1. Load the problem instance from the file
-    problem = MyProblem.load(instance_path)
+- It initializes the `self.problem` instance in its constructor.
+- The `get_variants` method uses `itertools.product` to combine different **Acceptance Criteria**, **Local Search Functions**, and **Shake Functions** (and $k$ levels) to automatically generate all VNS configurations.
+- The resulting function (`self.make_func`) wraps the VNS execution logic (`run_vns_optimizer`).
 
-    # 2. Configure your algorithm (e.g., VNS)
-    config = VNSConfig(...)
+#### B. The Pymoo Runner (`PymooInstanceRunner`)
 
-    # 3. Execute the optimization and get the results
-    results = run_instance_with_config(run_seconds, problem, config)
+This runner integrates external libraries (like Pymoo) by wrapping the core problem definition.
 
-    # 4. Return the results in a SavedRun object
-    return SavedRun(metadata=..., solutions=...)
-```
+- It initializes the **framework problem** (`MOKPProblem`) and wraps it inside the **Pymoo-compatible problem class** (`MOKPPymoo`).
+- The `get_variants` method generates different **NSGA2/SPEA2** configurations by varying the population size.
+- The execution function calls Pymoo's `minimize` and post-processes the results to ensure only non-dominated solutions are saved in the `SavedRun` object.
 
-### Step 3: Register the CLI Runner
 
-Finally, you need to register your new runners with the main CLI application. Create a `register_cli` function in your new module. This function will be called from `cli.py` to add your runners to the command-line interface.
+### Step 3: Register the Runners in the CLI
+
+The final step is to register the problem name and the list of runner classes with the `CLI`. This is done in the entry point file (e.g., your `if __name__ == "__main__":` block).
 
 ```python
-# src/examples/my_problem.py
-
-from typing import Any
-from src.cli.cli import CLI
-
-def register_cli(cli: CLI) -> None:
-    # Register your solver under a specific problem name
-    # The first argument is the problem name, which becomes a subcommand of `run`
-    # The second argument is a list of tuples: (runner_name, runner_function)
-    cli.register_runner(
-        "my_problem",
-        [
-            ("my_custom_solver_config_A", my_custom_solver),
-            ("another_config_B", another_solver),
-        ],
-    )
-```
-
-### Step 4: Add to `cli.py`
-
-The last step is to import your new module and call its registration function in the `if __name__ == "__main__"` block of `cli.py`.
-
-```python
-# cli.py
-
-import logging
-
-import src.examples.mokp.nsga2
-import src.examples.mokp.spea2
-import src.examples.mokp.vns
-import src.examples.my_problem # Import your new module
-
-from src.cli.cli import CLI
-
-# ... setup_logging function
-
+# The final CLI registration call:
 if __name__ == "__main__":
-    setup_logging(level=logging.INFO)
-    cli = CLI()
-
-    src.examples.mokp.nsga2.register_cli(cli)
-    src.examples.mokp.spea2.register_cli(cli)
-    src.examples.mokp.vns.register_cli(cli)
-    src.examples.my_problem.register_cli(cli) # Register your new problem
-
-    cli.run()
+    base = Path(__file__).parent / "runs"
+    CLI(
+        problem_name="MOKP",
+        base_path=base,
+        # Pass a list of ALL InstanceRunner classes for this problem
+        runner_classes=[VNSInstanceRunner, PymooInstanceRunner],
+        problem_class=MOKPProblem # The class used to load problem instances
+    ).run()
 ```
 
-After completing these steps, you will be able to run your new problem's algorithms directly from the command line using a command like `uv run python ./cli.py run -i <instance> -t <time> my_problem`.
-
+After completing these steps, the CLI automatically exposes all configurations defined in both `VNSInstanceRunner` and `PymooInstanceRunner` for the `MOKP` problem.

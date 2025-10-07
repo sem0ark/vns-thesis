@@ -2,7 +2,6 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from enum import Enum
 from functools import cached_property
-from pathlib import Path
 from typing import Any, Iterable, Self, TypeVar
 
 T = TypeVar("T")
@@ -108,7 +107,6 @@ class Solution[T]:
 
     def _equals(self, other: Self) -> bool:
         """Checks whether solutions are the same.
-        Default implementation considers solutions as equal if their objective value is the same.
         """
         return self._hash == other._hash
 
