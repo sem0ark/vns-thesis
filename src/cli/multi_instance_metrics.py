@@ -2,7 +2,7 @@ import glob
 import json
 from collections import defaultdict
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, Literal, cast
 
 import click
 import numpy as np
@@ -34,6 +34,8 @@ METRIC_NAMES = list(METRIC_MAPPING.values())
 
 # NOTE: at least for now all provided metrics are to be minimized
 MINIMIZED_METRICS = METRIC_KEYS + METRIC_NAMES
+
+AggregationMode = Literal["min", "max", "mean"]
 
 
 def load_metrics_data(file_paths: list[Path]) -> dict[str, dict[str, dict[str, float]]]:
@@ -78,10 +80,11 @@ def load_metrics_data(file_paths: list[Path]) -> dict[str, dict[str, dict[str, f
     return all_metrics
 
 
-def calculate_average_metrics(
+def calculate_aggregated_metrics(
     all_metrics: dict[str, dict[str, dict[str, float]]],
     filters_info: list[tuple[str, FilterExpression]],
     metric_keys: list[str] = METRIC_KEYS,
+    aggregation_type: Literal["min", "max", "mean"] = "mean"
 ) -> pd.DataFrame:
     """
     Calculates the average value for all standard metrics, grouped by filter
@@ -110,7 +113,12 @@ def calculate_average_metrics(
                 matched_values = matched_values_by_metric[metric_key]
 
                 if matched_values:
-                    average_value = sum(matched_values) / len(matched_values)
+                    if aggregation_type == "max":
+                        average_value = max(matched_values)
+                    elif aggregation_type == "min":
+                        average_value = min(matched_values)
+                    else:
+                        average_value = sum(matched_values) / len(matched_values)
                 else:
                     average_value = float("nan")
 
@@ -336,6 +344,14 @@ def plot_nemenyi_scores(results: dict[str, dict[str, Any]], plot_file: Path):
     show_default=True,
     help="Significance level (alpha) for statistical tests.",
 )
+@click.option(
+    "--agg",
+    "aggregate_func",
+    type=click.Choice(["min", "max", "mean"]),
+    default="mean",
+    show_default=True,
+    help="Function by which we will group metric results per filter group.",
+)
 def compare_metrics(
     input_pattern: str,
     filters: list[FilterExpression],
@@ -343,6 +359,7 @@ def compare_metrics(
     output_file: Path | None,
     plot_file: Path | None,
     alpha: float,
+    aggregate_func: AggregationMode,
 ):
     """
     Main function to load, filter, average, and display cross-instance metrics.
@@ -391,7 +408,7 @@ def compare_metrics(
         return
 
     try:
-        avg_df = calculate_average_metrics(all_metrics, filter_objects, METRIC_KEYS)
+        avg_df = calculate_aggregated_metrics(all_metrics, filter_objects, METRIC_KEYS, aggregate_func)
 
         new_index = avg_df.index.to_frame(index=False)
         new_index["Metric_Key"] = new_index["Metric_Key"].map(METRIC_MAPPING)
