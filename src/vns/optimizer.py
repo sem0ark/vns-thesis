@@ -1,19 +1,14 @@
 import logging
 from typing import Callable, Iterable, TypeVar
 
-from src.vns.abstract import (
-    AcceptanceCriterion,
-    Problem,
-    Solution,
-    VNSOptimizerAbstract,
-)
+from src.core.abstract import AcceptanceCriterion, OptimizerAbstract, Problem, Solution
 
 T = TypeVar("T")
 SearchFunction = Callable[[Solution[T]], Iterable[Solution[T] | None]]
 ShakeFunction = Callable[[Solution[T], int], Solution[T]]
 
 
-class ElementwiseVNSOptimizer[T](VNSOptimizerAbstract[T]):
+class VNSOptimizer[T](OptimizerAbstract[T]):
     def __init__(
         self,
         name: str,

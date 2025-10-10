@@ -234,7 +234,7 @@ To add a new optimization problem (e.g., a new variant of Knapsack or TSP) and i
 First, define the problem's abstract representation. Your concrete classes must inherit from the framework's abstract types.
 
 1.  **Solution**: Implement a subclass of `Solution[T]`. This class must define how its problem-specific data (`T`, e.g., a `numpy` array for MOKP) is **hashed** (`get_hash`) for archive storage and how it is **serialized** (`to_json_serializable`).
-2.  **Problem**: Implement a subclass of `Problem[T]`. This class must define the instance loading (`load`), the **objective evaluation** (`evaluate_solution`), and the **constraint check** (`satisfies_constraints`).
+2.  **Problem**: Implement a subclass of `Problem[T]`. This class must define the instance loading (`load`), the **objective evaluation** (`calculate_objectives`), and the **constraint check** (`satisfies_constraints`).
 
 **Example (MOKP):**
 
@@ -242,7 +242,7 @@ First, define the problem's abstract representation. Your concrete classes must 
 # MOKPProblem loads instance data, checks constraints, and returns
 # objectives (negated for maximization to fit the framework's minimization)
 class MOKPProblem(Problem[np.ndarray]):
-    # ... implementation of load, satisfies_constraints, and evaluate_solution
+    # ... implementation of load, satisfies_constraints, and calculate_objectives
     pass
 
 # _MOKPSolution handles hashing the numpy data and serialization

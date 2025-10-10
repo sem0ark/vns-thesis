@@ -5,11 +5,11 @@ from pathlib import Path
 from typing import Any, Literal, cast
 
 import click
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import scikit_posthocs
 from scipy import stats
-import matplotlib.pyplot as plt
 
 from src.cli.filter_param import ClickFilterExpression, FilterExpression
 
@@ -84,7 +84,7 @@ def calculate_aggregated_metrics(
     all_metrics: dict[str, dict[str, dict[str, float]]],
     filters_info: list[tuple[str, FilterExpression]],
     metric_keys: list[str] = METRIC_KEYS,
-    aggregation_type: Literal["min", "max", "mean"] = "mean"
+    aggregation_type: Literal["min", "max", "mean"] = "mean",
 ) -> pd.DataFrame:
     """
     Calculates the average value for all standard metrics, grouped by filter
@@ -408,7 +408,9 @@ def compare_metrics(
         return
 
     try:
-        avg_df = calculate_aggregated_metrics(all_metrics, filter_objects, METRIC_KEYS, aggregate_func)
+        avg_df = calculate_aggregated_metrics(
+            all_metrics, filter_objects, METRIC_KEYS, aggregate_func
+        )
 
         new_index = avg_df.index.to_frame(index=False)
         new_index["Metric_Key"] = new_index["Metric_Key"].map(METRIC_MAPPING)

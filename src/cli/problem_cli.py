@@ -14,7 +14,7 @@ from src.cli.filter_param import ClickFilterExpression, FilterExpression
 from src.cli.metrics import display_metrics, plot_runs
 from src.cli.shared import Metadata, SavedRun, SavedSolution
 from src.cli.utils import NpEncoder, parse_time_string
-from src.vns.abstract import Problem
+from src.core.abstract import Problem
 from src.vns.acceptance import ParetoFront
 
 
@@ -346,7 +346,7 @@ class CLI:
                 break
 
             solution = problem_instance.load_solution(saved_solution.data)
-            if not problem_instance.satisfies_constraints(solution):
+            if not solution.satisfies_constraints():
                 click.echo(
                     f"Validation FAILED: Solution #{i} in {file_path.name} is INFEASIBLE."
                 )
@@ -354,7 +354,7 @@ class CLI:
                 break
 
             try:
-                calculated_objectives = problem_instance.evaluate_solution(solution)
+                calculated_objectives = solution.calculate_objectives()
             except Exception as e:
                 click.echo(
                     f"Validation FAILED: Solution #{i} in {file_path.name} failed objective calculation: {e}"

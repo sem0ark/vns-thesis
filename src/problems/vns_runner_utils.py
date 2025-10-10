@@ -1,13 +1,13 @@
 import logging
 import time
 
-from src.vns.abstract import Solution
-from src.vns.optimizer import VNSOptimizerAbstract
+from src.core.abstract import Solution
+from src.vns.optimizer import OptimizerAbstract
 
 
 def run_vns_optimizer(
     run_time_seconds: float,
-    optimizer: VNSOptimizerAbstract,
+    optimizer: OptimizerAbstract,
 ) -> list[Solution]:
     """
     Runs the VNS optimizer for a specified duration and returns the final

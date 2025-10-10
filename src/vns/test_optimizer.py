@@ -1,6 +1,6 @@
 from unittest.mock import MagicMock
 
-from src.vns.optimizer import ElementwiseVNSOptimizer
+from src.vns.optimizer import VNSOptimizer
 
 
 class Solution:
@@ -20,7 +20,7 @@ class Solution:
 def test_vns_initialization():
     """Test initial setup: clearing criterion and adding initial solutions."""
 
-    optimizer = ElementwiseVNSOptimizer(
+    optimizer = VNSOptimizer(
         name="VNS",
         version=1,
         problem=MagicMock(),

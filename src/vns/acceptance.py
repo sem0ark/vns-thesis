@@ -2,7 +2,7 @@ import random
 from enum import Enum
 from typing import Callable
 
-from src.vns.abstract import AcceptanceCriterion, Solution
+from src.core.abstract import AcceptanceCriterion, Solution
 
 
 class ComparisonResult(Enum):

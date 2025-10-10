@@ -1,7 +1,7 @@
 from ast import TypeVar
 from typing import Callable, Iterable
 
-from src.vns.abstract import Solution
+from src.core.abstract import Solution
 from src.vns.acceptance import ComparisonResult, is_dominating_min
 
 T = TypeVar("T")

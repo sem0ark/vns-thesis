@@ -1,5 +1,3 @@
-from abc import ABC, abstractmethod
-from dataclasses import dataclass
 from enum import Enum
 from functools import cached_property
 from typing import Any, Iterable, Self, TypeVar
@@ -16,7 +14,7 @@ class OptimizationDirection(Enum):
     MAX = -1
 
 
-class Problem[T](ABC):
+class Problem[T]:
     """
     Abstract interface for defining an optimization problem.
     Concrete problems (e.g., TSP, knapsack) will implement this.
@@ -27,7 +25,6 @@ class Problem[T](ABC):
         num_variables: int,
         num_objectives: int,
         num_constraints: int,
-
         problem_name: str = "",
         objective_names: list[str] | None = None,
     ) -> None:
@@ -43,53 +40,48 @@ class Problem[T](ABC):
         ]
         """Actual names of the objectives used when displaying optimization results."""
 
-    @abstractmethod
-    def evaluate_solution(self, solution: "Solution[T]") -> tuple[float, ...]:
-        """Objective function for this problem, expected minimization."""
-        raise NotImplementedError()
-
-    @abstractmethod
     def get_initial_solutions(self, num_solutions: int = 50) -> Iterable["Solution[T]"]:
         """Get a random solution to start with."""
         raise NotImplementedError()
 
-    @abstractmethod
-    def satisfies_constraints(self, solution: "Solution[T]") -> bool:
-        """Checks whether a solution is legit for a given problem."""
-        raise NotImplementedError()
-
-    @abstractmethod
     def load_solution(self, saved_solution_data: Any) -> "Solution[T]":
-        """Loads problem solution instance from a given sarialized data."""
+        """Loads problem solution instance from a given serialized data."""
         raise NotImplementedError()
 
     @staticmethod
-    @abstractmethod
     def load(filename: str) -> "Problem[T]":
         """Loads problem instance from a given file path."""
         raise NotImplementedError()
 
 
-@dataclass
 class Solution[T]:
     """Abstract base class for a solution to a given problem."""
 
-    data: T
-    """Problem-specific representation (list, array, etc.)."""
-    problem: Problem[T]
-    """Link to the problem instance."""
+    def __init__(
+        self,
+        data: T,
+        problem: Problem[T],
+        precomputed_objectives: tuple[float, ...] | None = None,
+    ) -> None:
+        self.data = data
+        """Problem-specific representation (list, array, etc.)."""
+        self.problem = problem
+        """Link to the problem instance."""
+        self._objectives = precomputed_objectives
 
     def __hash__(self) -> int:
         return self._hash
 
     def __eq__(self, other) -> bool:
         if isinstance(other, self.__class__):
-            return self._equals(other)
+            return self._hash == other._hash
         return False
 
     @cached_property
     def objectives(self) -> tuple[float, ...]:
-        return self.problem.evaluate_solution(self)
+        if self._objectives is not None:
+            return self._objectives
+        return self.calculate_objectives()
 
     @cached_property
     def _hash(self) -> int:
@@ -97,18 +89,25 @@ class Solution[T]:
         Default implementation gives a hash of solution's objectives."""
         return self.get_hash()
 
-    def new(self, data: Any) -> Self:
-        return self.__class__(data, self.problem)
+    def calculate_objectives(self) -> tuple[float, ...]:
+        """Objective function for this problem, expected minimization."""
+        raise NotImplementedError()
+
+    def satisfies_constraints(self) -> bool:
+        """Checks whether a solution is legit for a given problem."""
+        raise NotImplementedError()
 
     def get_hash(self) -> int:
         """Returns a hash of a solution to use for comparison.
         Default implementation gives a hash of solution's objectives."""
         return hash(self.objectives)
 
-    def _equals(self, other: Self) -> bool:
-        """Checks whether solutions are the same.
-        """
-        return self._hash == other._hash
+    def get_data_copy(self) -> T:
+        raise NotImplementedError()
+
+    def get_solution_copy(self) -> Self:
+        """Create a copy of a solution with new data."""
+        return self.__class__(self.get_data_copy(), self.problem)
 
     def to_json_serializable(self) -> Any:
         return self.data
@@ -134,23 +133,23 @@ class AcceptanceCriterion[T]:
         Decides whether to accept candidate_solution and updates the internal archive.
         Returns True if the candidate leads to a new "current best" or improves the archive.
         """
-        raise NotImplementedError
+        raise NotImplementedError()
 
     def get_all_solutions(self) -> list[Solution[T]]:
         """Returns the full archive of accepted solutions."""
-        raise NotImplementedError
+        raise NotImplementedError()
 
     def get_one_current_solution(self) -> Solution[T]:
         """Returns a single solution from the archive."""
-        raise NotImplementedError
+        raise NotImplementedError()
 
     def clear(self):
         """Clears the state of the criterion."""
-        raise NotImplementedError
+        raise NotImplementedError()
 
 
-class VNSOptimizerAbstract[T]:
-    """Abstract VNS optimizer, also defines the context passed between program elements."""
+class OptimizerAbstract[T]:
+    """Abstract optimizer capable of external control over optimization process."""
 
     def __init__(
         self,
@@ -175,17 +174,17 @@ class VNSOptimizerAbstract[T]:
         """
         Initializes VNS optimization process and clear internal state.
         """
-        raise NotImplementedError
+        raise NotImplementedError()
 
     def optimize(self) -> Iterable[bool | None]:
         """
         Runs the VNS optimization process. Yielding None in this case, allows to improve CLi experience to allow interruption in the middle of actual iteration.
         """
-        raise NotImplementedError
+        raise NotImplementedError()
 
     def get_solutions(self) -> list[Solution]:
         """
         Runs the current best set of solutions.
         Returns the best solution found (for single-obj) or the Pareto front (for multi-obj).
         """
-        raise NotImplementedError
+        raise NotImplementedError()
