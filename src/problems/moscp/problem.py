@@ -6,7 +6,7 @@ import numpy as np
 import xxhash
 from pymoo.core.problem import ElementwiseProblem
 
-from src.vns.abstract import Problem, Solution
+from src.core.abstract import Problem, Solution
 
 type MOSCPSolution = Solution[np.ndarray]
 
@@ -23,18 +23,14 @@ class _MOSCPSolution(Solution[np.ndarray]):
         return h.intdigest()
 
     def to_json_serializable(self):
-        # Unpack before serialization for human readability and consistent format
-        unpacked_data = np.unpackbits(self.data)[: self.problem.num_variables]
-        return unpacked_data.tolist()
+        return self.data.astype(int).tolist()
 
     @staticmethod
     def from_json_serializable(
         problem: Problem[np.ndarray], serialized_data: list[int]
     ) -> MOSCPSolution:
         # Load the unpacked data, then pack it for internal storage
-        unpacked_array = np.array(serialized_data, dtype=np.uint8)
-        packed_array = np.packbits(unpacked_array)
-        return _MOSCPSolution(packed_array, problem)
+        return _MOSCPSolution(np.array(serialized_data).astype(bool), problem)
 
 
 class MOSCPProblem(Problem[np.ndarray]):
@@ -53,13 +49,13 @@ class MOSCPProblem(Problem[np.ndarray]):
 
         self.num_items = num_items
         self.num_sets = num_sets
-        self.costs = np.array(costs, dtype=int).T
+        self.costs = np.array(costs, dtype=int)
 
-        # Coverage matrix: self.coverage[item_idx, set_idx] = 1 if set_idx covers item_idx
+        # Coverage matrix: self.coverage[item_index, set_index] = 1 if set_index covers item_index
         self.coverage_unpacked = np.zeros((num_items, num_sets), dtype=np.uint8)
-        for item_idx, covering_sets_1based in enumerate(coverage_data):
+        for item_index, covering_sets_1based in enumerate(coverage_data):
             covering_sets_0based = [s - 1 for s in covering_sets_1based]
-            self.coverage_unpacked[item_idx, covering_sets_0based] = 1
+            self.coverage_unpacked[item_index, covering_sets_0based] = 1
 
         # Transpose and Pack the Sets: (num_sets x packed_item_bits)
         self.set_coverage_packed = np.array(
@@ -75,12 +71,12 @@ class MOSCPProblem(Problem[np.ndarray]):
         solutions = []
 
         for _ in range(num_solutions):
-            solution_data_unpacked = np.zeros(self.num_variables, dtype=np.bool_)
+            solution_data = np.zeros(self.num_variables, dtype=np.bool_)
             uncovered_items = set(range(self.num_constraints))
 
             while uncovered_items:
-                item_idx = random.choice(list(uncovered_items))
-                possible_sets_indices = np.where(self.coverage_unpacked[item_idx] == 1)[
+                item_index = random.choice(list(uncovered_items))
+                possible_sets_indices = np.where(self.coverage_unpacked[item_index] == 1)[
                     0
                 ]
 
@@ -91,31 +87,31 @@ class MOSCPProblem(Problem[np.ndarray]):
 
                 # Only consider sets that haven't been selected yet for a random choice
                 unselected_sets = [
-                    s for s in possible_sets_indices if solution_data_unpacked[s] == 0
+                    s for s in possible_sets_indices if solution_data[s] == 0
                 ]
                 if not unselected_sets:
                     break
 
                 set_to_add = random.choice(unselected_sets)
-                solution_data_unpacked[set_to_add] = 1
+                solution_data[set_to_add] = 1
 
                 # Check coverage against current selection
-                current_selection_mask = solution_data_unpacked == 1
+                current_selection_mask = solution_data == 1
                 total_coverage = self.coverage_unpacked @ current_selection_mask
 
                 # Update uncovered items
                 uncovered_items = set(np.where(total_coverage < 1)[0])
 
-            solutions.append(_MOSCPSolution(solution_data_unpacked, self))
+            solutions.append(_MOSCPSolution(solution_data, self))
 
         return solutions
 
-    def satisfies_constraints(self, solution: MOSCPSolution) -> bool:
+    def satisfies_constraints(self, solution_data: np.ndarray) -> bool:
         """
         Checks if a solution is feasible (every item is covered).
         Requires unpacking the solution data.
         """
-        set_selection_vector = solution.data.astype(bool)
+        set_selection_vector = solution_data
 
         # Get the packed coverage vectors for ALL selected sets
         selected_set_coverages = self.set_coverage_packed[set_selection_vector]
@@ -130,18 +126,13 @@ class MOSCPProblem(Problem[np.ndarray]):
         # Check if the total coverage equals the mask where all items are set to 1
         return bool(np.all(total_coverage_packed == self.all_covered_mask))
 
-    def evaluate_solution(self, solution: MOSCPSolution) -> tuple[float, ...]:
+    def calculate_objectives(self, solution_data: np.ndarray) -> tuple[float, ...]:
         """Calculates the total cost for each objective."""
-
-        is_feasible = self.satisfies_constraints(solution)
-        penalty_value = 1e12
-
-        results = tuple(
-            np.sum(solution.data * self.costs[i]) if is_feasible else penalty_value
-            for i in range(self.num_objectives)
-        )
-
-        return results
+        # Drastically increase costs in case of infeasible solution
+        # to still keep improvement gradient even for infeasible solution in the same minimization direction
+        multiplier = 1 if self.satisfies_constraints(solution_data) else 100
+        result = multiplier * np.sum(solution_data * self.costs, axis=1)
+        return tuple(result.tolist())
 
     @staticmethod
     def calculate_solution_distance(sol1: MOSCPSolution, sol2: MOSCPSolution) -> float:
@@ -184,12 +175,12 @@ class MOSCPProblemPymoo(ElementwiseProblem):
         )
         self.problem_instance = problem
 
-    def _evaluate(self, x: np.ndarray, out: dict, *args: Any, **kwargs: Any):
+    def _evaluate(self, x: np.ndarray, out: dict, *args, **kwargs):
         """
         Evaluate a single solution vector 'x' (vector of N floats).
         """
         # np.argsort returns the indices that would sort the array.
         # Basically ranking the results from 0 to N - 1
         permutation_array = np.argsort(x).astype(int)
-        z1, z2 = _MOSCPSolution(permutation_array, self.problem_instance).objectives
+        z1, z2 = self.problem_instance.calculate_objectives(permutation_array)
         out["F"] = np.array([z1, z2], dtype=float)

@@ -1,11 +1,11 @@
 import json
-from typing import Any, Dict, Iterable, List, Tuple, cast
+from typing import Any, Dict, Iterable, List, Tuple
 
 import numpy as np
 import xxhash
 from pymoo.core.problem import ElementwiseProblem
 
-from src.vns.abstract import Problem, Solution
+from src.core.abstract import Problem, Solution
 
 type MOACBWSolution = Solution[np.ndarray]
 
@@ -21,13 +21,6 @@ class _MOACBWSolution(Solution[np.ndarray]):
         h = xxhash.xxh64()
         h.update(self.data.tobytes())
         return h.intdigest()
-
-    @property
-    def node_positions(self):
-        positions = np.zeros(self.data.size, dtype=int)
-        for pos, v in enumerate(self.data):
-            positions[v] = pos
-        return positions
 
     def to_json_serializable(self) -> Any:
         return self.data.tolist()
@@ -88,12 +81,13 @@ class MOACBWProblem(Problem[np.ndarray]):
             solutions.append(_MOACBWSolution(solution_data, self))
         return solutions
 
-    def get_antibandwidth(self, solution: MOACBWSolution) -> int:
+    def get_antibandwidth(self, solution_data: np.ndarray) -> int:
         """
         Antibandwidth = min_{v in V} { min_{(u,v) in E} { |pi(u) - pi(v)| } }
         """
-        sol: _MOACBWSolution = cast(Any, solution)
-        positions = sol.node_positions
+        positions = np.zeros(solution_data.size, dtype=int)
+        for pos, v in enumerate(solution_data):
+            positions[v] = pos
 
         antibandwidth_values = []
 
@@ -113,7 +107,7 @@ class MOACBWProblem(Problem[np.ndarray]):
 
         return min(antibandwidth_values) + sum(antibandwidth_values) / self.num_nodes**2
 
-    def get_cutwidth(self, solution: MOACBWSolution) -> int:
+    def get_cutwidth(self, solution_data: np.ndarray) -> int:
         # We can calculate it using a more optimized version of:
         # for i in [0, N-1] Compute max of:
         #    cut_edges = 0
@@ -124,9 +118,10 @@ class MOACBWProblem(Problem[np.ndarray]):
         #            if neighbor in set_right:
         #                cut_edges += 1
 
-        sol: _MOACBWSolution = cast(Any, solution)
-        permutation = sol.data
-        positions = sol.node_positions
+        permutation = solution_data
+        positions = np.zeros(solution_data.size, dtype=int)
+        for pos, v in enumerate(solution_data):
+            positions[v] = pos
 
         current_cut = 0  # Represents the cut size C(k)
         cuts = []
@@ -166,7 +161,7 @@ class MOACBWProblem(Problem[np.ndarray]):
 
         return max(cuts) + sum(cuts) / self.num_nodes**2
 
-    def evaluate_solution(self, solution: MOACBWSolution) -> Tuple[float, float]:
+    def calculate_objectives(self, solution_data: np.ndarray) -> Tuple[float, float]:
         """
         Calculates the two objective function values (z1 and z2).
         """
@@ -174,15 +169,15 @@ class MOACBWProblem(Problem[np.ndarray]):
             return 0.0, 0.0
 
         # Maximize z1 = min_{v in V} { min_{(u,v) in E} { |pi(u) - pi(v)| } }
-        z1 = -float(self.get_antibandwidth(solution))
+        z1 = -float(self.get_antibandwidth(solution_data))
 
         # Minimize z2 = max_{k=1}^{n-1} C(k)
         # C(k): cut size after the vertex with position k (i.e., between k and k+1)
-        z2 = float(self.get_cutwidth(solution))
+        z2 = float(self.get_cutwidth(solution_data))
 
         return z1, z2
 
-    def satisfies_constraints(self, solution: MOACBWSolution) -> bool:
+    def satisfies_constraints(self, solution_data: np.ndarray) -> bool:
         return True
 
     def load_solution(self, saved_solution_data) -> MOACBWSolution:
