@@ -621,15 +621,34 @@ class CLI:
             required=True,
             help="Maximum execution time (e.g., 30s, 1h).",
         )
+        @click.option(
+            "--trace",
+            is_flag=True,
+            default=False,
+        )
         def run_command(
-            instance: list[str], filter_string: FilterExpression, max_time: str
+            instance: list[str],
+            filter_string: FilterExpression,
+            max_time: str,
+            trace: bool,
         ):
             """
             Executes optimization runs for a specified problem and instance(s).
 
             Example: script.py run -i 'data/*.json' -t 30s -f 'vns,k1 or vns,k3'
             """
-            self._execute_run_logic(instance, max_time, filter_string)
+            if trace:
+                try:
+                    from viztracer import VizTracer
+
+                    with VizTracer(min_duration=20):
+                        self._execute_run_logic(instance, max_time, filter_string)
+                except ImportError:
+                    click.echo(
+                        "Warning: to use --trace, please, install viztracer with pip install viztracer"
+                    )
+            else:
+                self._execute_run_logic(instance, max_time, filter_string)
 
         @cli.command(name="plot", help="Plot saved runs for a given instance.")
         @click.option(

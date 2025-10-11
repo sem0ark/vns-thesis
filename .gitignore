@@ -5,6 +5,9 @@ metrics
 *.xlsx
 *.png
 
+# Ignore viztracer data
+result.json
+
 # General
 .DS_Store
 .AppleDouble
