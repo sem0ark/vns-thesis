@@ -13,10 +13,17 @@ from pymoo.util.nds.non_dominated_sorting import NonDominatedSorting
 
 from src.cli.problem_cli import CLI, InstanceRunner, RunConfig
 from src.cli.shared import Metadata, SavedRun, SavedSolution
+from src.core.abstract import OptimizerAbstract
 from src.problems.mokp.problem import MOKPProblem, MOKPPymoo
-from src.problems.mokp.vns import add_remove_op, shake_add_remove, shake_swap, swap_op
+from src.problems.mokp.vns import (
+    add_remove_op,
+    add_remove_op_v2,
+    shake_add_remove,
+    shake_swap,
+    swap_op,
+    swap_op_v2,
+)
 from src.problems.vns_runner_utils import run_vns_optimizer
-from src.vns.abstract import VNSOptimizerAbstract
 from src.vns.acceptance import AcceptBatch, AcceptBatchSkewed
 from src.vns.local_search import (
     best_improvement,
@@ -25,7 +32,7 @@ from src.vns.local_search import (
     first_improvement_quick,
     noop,
 )
-from src.vns.optimizer import ElementwiseVNSOptimizer
+from src.vns.optimizer import VNSOptimizer
 
 
 class VNSInstanceRunner(InstanceRunner):
@@ -59,7 +66,12 @@ class VNSInstanceRunner(InstanceRunner):
                         ("FI", first_improvement),
                         ("QI", first_improvement_quick),
                     ],
-                    [("op_ar", add_remove_op), ("op_swap", swap_op)],
+                    [
+                        ("op_ar", add_remove_op),
+                        ("op_ar_v2", add_remove_op_v2),
+                        ("op_swap", swap_op),
+                        ("op_swap_v2", swap_op_v2),
+                    ],
                 )
             ],
             *[
@@ -113,18 +125,18 @@ class VNSInstanceRunner(InstanceRunner):
                 f"vns {common_name} {acc_name} {search_name} k{k} {shake_name}"
             )
 
-            optimizer = ElementwiseVNSOptimizer(
+            optimizer = VNSOptimizer(
                 problem=self.problem,
                 search_functions=[search_func] * k,
                 acceptance_criterion=acceptance_criterion,
                 shake_function=shake_func,
                 name=config_name,
-                version=14,
+                version=15,
             )
 
             yield config_name, self.make_func(optimizer)
 
-    def make_func(self, optimizer: VNSOptimizerAbstract):
+    def make_func(self, optimizer: OptimizerAbstract):
         def run(config: RunConfig):
             solutions = run_vns_optimizer(
                 config.run_time_seconds,

@@ -1,17 +1,79 @@
-from enum import Enum
+from copy import copy
 from functools import cached_property
 from typing import Any, Iterable, Self, TypeVar
 
 T = TypeVar("T")
 
 
-class OptimizationDirection(Enum):
-    """
-    Represents whether a given objective should be minimized or maximized.
-    """
+class Delta[T]:
+    """Represents a single step change in the solution."""
 
-    MIN = 1
-    MAX = -1
+    def apply(self, data: T):
+        """Change the data inplace."""
+        raise NotImplementedError()
+
+    def revert(self, data: T):
+        """Revert the data inplace."""
+        raise NotImplementedError()
+
+
+class Solution[T]:
+    """Abstract base class for a solution to a given problem."""
+
+    def __init__(
+        self,
+        data: T,
+        problem: "Problem[T]",
+        objectives: tuple[float, ...] | None = None,
+        delta: Delta[T] | None = None,
+    ) -> None:
+        self.data = data
+        """Problem-specific representation (list, array, etc.)."""
+        self.problem = problem
+        """Link to the problem instance."""
+        self._delta = delta
+
+        self.objectives = objectives or self.problem.calculate_objectives(self.data)
+
+    def __hash__(self) -> int:
+        return self._hash
+
+    def __eq__(self, other) -> bool:
+        if isinstance(other, self.__class__):
+            return self._hash == other._hash
+        return False
+
+    @cached_property
+    def _hash(self) -> int:
+        """Returns a hash of a solution to use for comparison.
+        Default implementation gives a hash of solution's objectives."""
+        return self.get_hash()
+
+    def get_hash(self) -> int:
+        """Returns a hash of a solution to use for comparison.
+        Default implementation gives a hash of solution's objectives."""
+        return hash(self.objectives)
+
+    def get_data_copy(self) -> T:
+        return copy(self.data)
+
+    def flatten_solution(self) -> Self:
+        """Ensures that any deltas for solution were applied."""
+        if self._delta:
+            new_data = self.get_data_copy()
+            self._delta.apply(new_data)
+            return self.__class__(new_data, self.problem, self.objectives)
+
+        return self.__class__(self.data, self.problem, self.objectives)
+
+    def to_json_serializable(self) -> Any:
+        return self.data
+
+    @staticmethod
+    def from_json_serializable(
+        problem: "Problem[T]", serialized_data: Any
+    ) -> "Solution[T]":
+        raise NotImplementedError()
 
 
 class Problem[T]:
@@ -44,6 +106,14 @@ class Problem[T]:
         """Get a random solution to start with."""
         raise NotImplementedError()
 
+    def calculate_objectives(self, solution_data: T) -> tuple[float, ...]:
+        """Objective function for this problem, expected minimization."""
+        raise NotImplementedError()
+
+    def satisfies_constraints(self, solution_data: T) -> bool:
+        """Checks whether a solution is legit for a given problem."""
+        raise NotImplementedError()
+
     def load_solution(self, saved_solution_data: Any) -> "Solution[T]":
         """Loads problem solution instance from a given serialized data."""
         raise NotImplementedError()
@@ -51,71 +121,6 @@ class Problem[T]:
     @staticmethod
     def load(filename: str) -> "Problem[T]":
         """Loads problem instance from a given file path."""
-        raise NotImplementedError()
-
-
-class Solution[T]:
-    """Abstract base class for a solution to a given problem."""
-
-    def __init__(
-        self,
-        data: T,
-        problem: Problem[T],
-        precomputed_objectives: tuple[float, ...] | None = None,
-    ) -> None:
-        self.data = data
-        """Problem-specific representation (list, array, etc.)."""
-        self.problem = problem
-        """Link to the problem instance."""
-        self._objectives = precomputed_objectives
-
-    def __hash__(self) -> int:
-        return self._hash
-
-    def __eq__(self, other) -> bool:
-        if isinstance(other, self.__class__):
-            return self._hash == other._hash
-        return False
-
-    @cached_property
-    def objectives(self) -> tuple[float, ...]:
-        if self._objectives is not None:
-            return self._objectives
-        return self.calculate_objectives()
-
-    @cached_property
-    def _hash(self) -> int:
-        """Returns a hash of a solution to use for comparison.
-        Default implementation gives a hash of solution's objectives."""
-        return self.get_hash()
-
-    def calculate_objectives(self) -> tuple[float, ...]:
-        """Objective function for this problem, expected minimization."""
-        raise NotImplementedError()
-
-    def satisfies_constraints(self) -> bool:
-        """Checks whether a solution is legit for a given problem."""
-        raise NotImplementedError()
-
-    def get_hash(self) -> int:
-        """Returns a hash of a solution to use for comparison.
-        Default implementation gives a hash of solution's objectives."""
-        return hash(self.objectives)
-
-    def get_data_copy(self) -> T:
-        raise NotImplementedError()
-
-    def get_solution_copy(self) -> Self:
-        """Create a copy of a solution with new data."""
-        return self.__class__(self.get_data_copy(), self.problem)
-
-    def to_json_serializable(self) -> Any:
-        return self.data
-
-    @staticmethod
-    def from_json_serializable(
-        problem: Problem[T], serialized_data: Any
-    ) -> "Solution[T]":
         raise NotImplementedError()
 
 

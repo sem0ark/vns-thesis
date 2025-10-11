@@ -91,7 +91,7 @@ def _load_runs(
     for file_path in all_files:
         try:
             run = _load_run(file_path, problem_name, instance_name, include_data)
-            config_name = f"{run.metadata.name} v{run.metadata.version} {int(run.metadata.run_time_seconds)}s"
+            config_name = f"v{run.metadata.version} {int(run.metadata.run_time_seconds)}s {run.metadata.name}"
             runs_by_name[config_name].append(run)
 
         except (json.JSONDecodeError, ValueError, KeyError, TypeError) as e:
@@ -346,7 +346,7 @@ class CLI:
                 break
 
             solution = problem_instance.load_solution(saved_solution.data)
-            if not solution.satisfies_constraints():
+            if not problem_instance.satisfies_constraints(solution.data):
                 click.echo(
                     f"Validation FAILED: Solution #{i} in {file_path.name} is INFEASIBLE."
                 )
@@ -354,10 +354,12 @@ class CLI:
                 break
 
             try:
-                calculated_objectives = solution.calculate_objectives()
+                calculated_objectives = problem_instance.calculate_objectives(
+                    solution.data
+                )
             except Exception as e:
                 click.echo(
-                    f"Validation FAILED: Solution #{i} in {file_path.name} failed objective calculation: {e}"
+                    f"Validation FAILED: Solution #{i} in {file_path.name} failed objective calculation: {e}",
                 )
                 is_valid = False
                 break

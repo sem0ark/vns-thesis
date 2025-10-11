@@ -2,7 +2,6 @@ import numpy as np
 import pytest
 
 from src.problems.mokp.problem import MOKPProblem, _MOKPSolution
-from src.vns.abstract import Solution
 
 
 @pytest.fixture
@@ -41,10 +40,7 @@ def example_problem_2d2d() -> MOKPProblem:
 def test_is_feasible_1d(
     example_problem_1d: MOKPProblem, solution_data: np.ndarray, is_feasible: bool
 ):
-    assert (
-        example_problem_1d.satisfies_constraints(Solution(solution_data, None))
-        == is_feasible
-    )
+    assert example_problem_1d.satisfies_constraints(solution_data) == is_feasible
 
 
 @pytest.mark.parametrize(
@@ -76,10 +72,7 @@ def test_is_feasible_1d(
 def test_is_feasible_2d2d(
     example_problem_2d2d: MOKPProblem, solution_data: np.ndarray, is_feasible: bool
 ):
-    assert (
-        example_problem_2d2d.satisfies_constraints(Solution(solution_data, None))
-        == is_feasible
-    )
+    assert example_problem_2d2d.satisfies_constraints(solution_data) == is_feasible
 
 
 @pytest.mark.parametrize(
@@ -87,7 +80,7 @@ def test_is_feasible_2d2d(
     [
         pytest.param(np.array([1, 0, 0, 0, 0], dtype=int), (-5.0,), id="Feasible 1"),
         pytest.param(np.array([1, 1, 0, 0, 0], dtype=int), (-9.0,), id="Feasible 2"),
-        pytest.param(np.array([1, 1, 1, 0, 0], dtype=int), (0.0,), id="Infeasible"),
+        pytest.param(np.array([1, 1, 1, 0, 0], dtype=int), (12.0,), id="Infeasible"),
     ],
 )
 def test_evaluate_1d(
@@ -105,7 +98,7 @@ def test_evaluate_1d(
     [
         pytest.param(np.array([1, 1, 0, 0, 0], dtype=int), (-9.0, -3.0), id="Feasible"),
         pytest.param(
-            np.array([1, 1, 1, 0, 0], dtype=int), (0.0, 0.0), id="Infeasible 1"
+            np.array([1, 1, 1, 0, 0], dtype=int), (12.0, 6.0), id="Infeasible 1"
         ),
     ],
 )
@@ -124,10 +117,10 @@ def test_evaluate_2d(
     [
         pytest.param(np.array([0, 1, 0, 0, 0], dtype=int), (-4.0, -2.0), id="Feasible"),
         pytest.param(
-            np.array([1, 1, 1, 0, 0], dtype=int), (0.0, 0.0), id="Infeasible 1"
+            np.array([1, 1, 1, 0, 0], dtype=int), (12.0, 6.0), id="Infeasible 1"
         ),
         pytest.param(
-            np.array([0, 1, 1, 0, 0], dtype=int), (0.0, 0.0), id="Infeasible 2"
+            np.array([0, 1, 1, 0, 0], dtype=int), (7.0, 5.0), id="Infeasible 2"
         ),
     ],
 )

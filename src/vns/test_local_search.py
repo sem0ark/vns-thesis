@@ -27,6 +27,9 @@ class Solution:
     def __hash__(self):
         return hash((self.objectives, self.data_id))
 
+    def flatten_solution(self) -> "Solution":
+        return self
+
 
 @pytest.fixture
 def initial_solution_single():

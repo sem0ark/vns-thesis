@@ -11,7 +11,7 @@ def run_vns_optimizer(
 ) -> list[Solution]:
     """
     Runs the VNS optimizer for a specified duration and returns the final
-    list of non-dominated solutions.
+    list of non-dominated solutions. Logs status approximately every 1.0 second.
 
     Args:
         run_time_seconds: The maximum duration in seconds for the optimization run.
@@ -21,7 +21,8 @@ def run_vns_optimizer(
         A list of Solution objects representing the final Pareto front.
     """
     logger = logging.getLogger(optimizer.name)
-    logging_interval_mask = (1 << 10) - 1
+    LOGGING_INTERVAL = 1.0
+    last_log_time = time.time()
 
     improved_in_cycle = False
     iteration_actual = 1
@@ -29,12 +30,13 @@ def run_vns_optimizer(
 
     start_time = time.time()
     for iteration, improved in enumerate(optimizer.optimize(), 1):
-        elapsed_time = time.time() - start_time
+        current_time = time.time()
+        elapsed_time = current_time - start_time
 
         if elapsed_time > run_time_seconds:
             num_solutions = len(optimizer.acceptance_criterion.get_all_solutions())
             logger.info(
-                "Timeout after %d iterations, ran for %d seconds. Total # solutions: %d",
+                "Timeout after %d iterations, ran for %.2f seconds. Total # solutions: %d",
                 iteration,
                 elapsed_time,
                 num_solutions,
@@ -45,8 +47,9 @@ def run_vns_optimizer(
             iteration_actual += 1
             improved_in_cycle = improved or improved_in_cycle
 
-        if iteration & logging_interval_mask == 0:
+        if current_time >= last_log_time + LOGGING_INTERVAL:
             front = optimizer.acceptance_criterion.get_all_solutions()
+            last_log_time = current_time
 
             logger.info(
                 "Iteration %d %s %s",

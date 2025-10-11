@@ -37,7 +37,7 @@ def best_improvement(
             improved = False
             best_found_in_neighborhood = current
 
-            for neighbor in operator(current):
+            for neighbor in operator(current.flatten_solution()):
                 if is_better(
                     neighbor.objectives, best_found_in_neighborhood.objectives
                 ):
@@ -51,7 +51,7 @@ def best_improvement(
 
             yield None
 
-        yield current
+        yield current.flatten_solution()
 
     return search
 
@@ -72,7 +72,7 @@ def first_improvement(
         current = initial
 
         while True:
-            for neighbor in operator(current):
+            for neighbor in operator(current.flatten_solution()):
                 if is_better(neighbor.objectives, current.objectives):
                     current = neighbor
                     break
@@ -81,7 +81,7 @@ def first_improvement(
 
             yield None
 
-        yield current
+        yield current.flatten_solution()
 
     return search
 
@@ -99,12 +99,12 @@ def first_improvement_quick(
         )
 
     def search(initial: Solution) -> Iterable[Solution | None]:
-        for neighbor in operator(initial):
+        for neighbor in operator(initial.flatten_solution()):
             if is_better(neighbor.objectives, initial.objectives):
-                yield neighbor
+                yield neighbor.flatten_solution()
                 return
 
-        yield initial
+        yield initial.flatten_solution()
 
     return search
 
@@ -142,6 +142,6 @@ def composite(search_functions: list[SearchFunction]):
 
             yield None
 
-        yield current
+        yield current.flatten_solution()
 
     return search

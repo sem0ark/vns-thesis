@@ -3,19 +3,16 @@ import random
 from typing import Iterable
 
 import numpy as np
-import xxhash
 from pymoo.core.problem import ElementwiseProblem
 
-from src.vns.abstract import Problem, Solution
+from src.core.abstract import Problem, Solution
 
 type MOKPSolution = Solution[np.ndarray]
 
 
 class _MOKPSolution(Solution[np.ndarray]):
     def get_hash(self) -> int:
-        h = xxhash.xxh64()
-        h.update(self.data.tobytes())
-        return h.intdigest()
+        return hash(self.objectives)
 
     def to_json_serializable(self):
         return self.data.tolist()
@@ -28,7 +25,10 @@ class _MOKPSolution(Solution[np.ndarray]):
             raise ValueError(
                 "Expected saved_solution_data to be list of ints (0 or 1)!"
             )
-        return _MOKPSolution(np.array(serialized_data), problem)
+        solution_data = np.array(serialized_data)
+        return _MOKPSolution(
+            solution_data, problem, problem.calculate_objectives(solution_data)
+        )
 
 
 class MOKPProblem(Problem[np.ndarray]):
@@ -62,30 +62,28 @@ class MOKPProblem(Problem[np.ndarray]):
             random.shuffle(items_to_add)
 
             for item_idx in items_to_add:
-                temp_data = solution_data.copy()
-                temp_data[item_idx] = 1
-                if self.satisfies_constraints(_MOKPSolution(temp_data, self)):
-                    solution_data = temp_data
+                solution_data[item_idx] = 1
+                if not self.satisfies_constraints(solution_data):
+                    solution_data[item_idx] = 0
 
-            solutions.append(_MOKPSolution(solution_data, self))
+            solutions.append(
+                _MOKPSolution(
+                    solution_data, self, self.calculate_objectives(solution_data)
+                )
+            )
         return solutions
 
-    def satisfies_constraints(self, solution: MOKPSolution) -> bool:
+    def satisfies_constraints(self, solution_data: np.ndarray) -> bool:
         """Checks if a solution is feasible with respect to knapsack capacity."""
-        total_weight = np.sum(solution.data * self.weights, axis=1)
+        total_weight = np.sum(solution_data * self.weights, axis=1)
         return np.all(total_weight <= self.capacity, axis=0)
 
-    def evaluate_solution(self, solution: MOKPSolution) -> tuple[float, ...]:
+    def calculate_objectives(self, solution_data: np.ndarray) -> tuple[float, ...]:
         """Calculates the profit for each objective."""
-        solution_data = solution.data
-        mult = 1 if self.satisfies_constraints(solution) else 0
-
-        # Negate for minimization
-        result = tuple(
-            -1 * mult * np.sum(solution_data * self.profits[i])
-            for i in range(self.num_objectives)
-        )
-        return result
+        multiplier = 1 if self.satisfies_constraints(solution_data) else -1
+        result = -1 * multiplier * np.sum(solution_data * self.profits, axis=1)
+        # Negated for maximization
+        return tuple(result.tolist())
 
     def load_solution(self, saved_solution_data) -> MOKPSolution:
         return _MOKPSolution.from_json_serializable(self, saved_solution_data)
