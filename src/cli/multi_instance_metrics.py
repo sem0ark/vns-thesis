@@ -301,6 +301,7 @@ def plot_nemenyi_scores(results: dict[str, dict[str, Any]], plot_file: Path):
     "-i",
     "--input-pattern",
     required=True,
+    multiple=True,
     type=str,
     help="Glob pattern for metrics JSON files (e.g., 'metrics_output/*.json').",
 )
@@ -353,7 +354,7 @@ def plot_nemenyi_scores(results: dict[str, dict[str, Any]], plot_file: Path):
     help="Function by which we will group metric results per filter group.",
 )
 def compare_metrics(
-    input_pattern: str,
+    input_pattern: list[str],
     filters: list[FilterExpression],
     filter_names: list[str],
     output_file: Path | None,
@@ -364,11 +365,14 @@ def compare_metrics(
     """
     Main function to load, filter, average, and display cross-instance metrics.
     """
-    file_paths = [Path(p) for p in glob.glob(input_pattern)]
+    file_paths = sorted(
+        set(instance for p in input_pattern for instance in glob.glob(p))
+    )
+    file_paths = [Path(p) for p in file_paths]
 
     if not file_paths:
         click.echo(
-            f"Error: No metrics files found matching the pattern '{input_pattern}'. Exiting."
+            f"Error: No metrics files found matching the patterns {input_pattern}. Exiting."
         )
         return
 

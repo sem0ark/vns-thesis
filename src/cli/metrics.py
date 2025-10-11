@@ -699,7 +699,7 @@ You can also click on graphs in legend to show/hide any specific one.
 
     if filtered_runs_grouped:
         metadata = list(filtered_runs_grouped.values())[0][0].metadata
-        title_str = f"{metadata.problem_name.upper()}, {metadata.instance_name}, {metadata.run_time_seconds}s"
+        title_str = f"{metadata.problem_name.upper()}, {metadata.instance_name}"
 
         if all_flipped_indices:
             flipped_obj_labels = [

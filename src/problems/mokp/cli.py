@@ -9,16 +9,16 @@ from pymoo.algorithms.moo.spea2 import SPEA2
 from pymoo.operators.sampling.rnd import BinaryRandomSampling
 from pymoo.optimize import minimize
 from pymoo.termination.max_time import TimeBasedTermination
-from pymoo.util.nds.non_dominated_sorting import NonDominatedSorting
 
 from src.cli.problem_cli import CLI, InstanceRunner, RunConfig
 from src.cli.shared import Metadata, SavedRun, SavedSolution
 from src.core.abstract import OptimizerAbstract
 from src.problems.mokp.problem import MOKPProblem, MOKPPymoo
 from src.problems.mokp.vns import (
-    add_remove_op,
-    add_remove_op_v2,
-    shake_add_remove,
+    flip_op,
+    flip_op_v2,
+    flip_op_v3,
+    shake_flip,
     shake_swap,
     swap_op,
     swap_op_v2,
@@ -47,10 +47,24 @@ class VNSInstanceRunner(InstanceRunner):
         acceptance_criteria = [
             ("batch", AcceptBatch()),
             (
-                "skewed",
-                AcceptBatchSkewed(
-                    alpha_weights, MOKPProblem.calculate_solution_distance
-                ),
+                "skewed-1",
+                AcceptBatchSkewed(alpha_weights * 1, MOKPProblem.calculate_solution_distance),
+            ),
+            (
+                "skewed-2",
+                AcceptBatchSkewed(alpha_weights * 2, MOKPProblem.calculate_solution_distance),
+            ),
+            (
+                "skewed-4",
+                AcceptBatchSkewed(alpha_weights * 4, MOKPProblem.calculate_solution_distance),
+            ),
+            (
+                "skewed-8",
+                AcceptBatchSkewed(alpha_weights * 8, MOKPProblem.calculate_solution_distance),
+            ),
+            (
+                "skewed-16",
+                AcceptBatchSkewed(alpha_weights * 16, MOKPProblem.calculate_solution_distance),
             ),
         ]
         local_search_functions = [
@@ -67,21 +81,19 @@ class VNSInstanceRunner(InstanceRunner):
                         ("QI", first_improvement_quick),
                     ],
                     [
-                        ("op_ar", add_remove_op),
-                        ("op_ar_v2", add_remove_op_v2),
-                        ("op_swap", swap_op),
+                        ("op_flip_v2", flip_op_v2),
                         ("op_swap_v2", swap_op_v2),
                     ],
                 )
             ],
             *[
                 (
-                    f"composite_{search_name}_ar_swap",
+                    f"composite_{search_name}_flip_swap",
                     composite(
                         [
                             composite(
                                 [
-                                    search_func_factory(add_remove_op, obj_i)
+                                    search_func_factory(flip_op, obj_i)
                                     for obj_i in range(num_objectives)
                                 ]
                             ),
@@ -102,7 +114,7 @@ class VNSInstanceRunner(InstanceRunner):
             ],
         ]
         shake_functions = [
-            ("shake_ar", shake_add_remove),
+            ("shake_flip", shake_flip),
             ("shake_swap", shake_swap),
         ]
         for (
@@ -131,7 +143,7 @@ class VNSInstanceRunner(InstanceRunner):
                 acceptance_criterion=acceptance_criterion,
                 shake_function=shake_func,
                 name=config_name,
-                version=15,
+                version=16,
             )
 
             yield config_name, self.make_func(optimizer)
@@ -209,22 +221,12 @@ class PymooInstanceRunner(InstanceRunner):
             # for some reason even with binary sampling, result is still float
             solution_data = np.round(solution_data).astype(int)
 
-            nd_sorting = NonDominatedSorting()
-            non_dominated_indices = nd_sorting.do(
-                results, only_non_dominated_front=True
-            )
-
-            final_solutions_objectives = results[non_dominated_indices]
-            final_solutions_data_entries = solution_data[non_dominated_indices]
-
             solutions_data = [
                 SavedSolution(
                     cast(np.ndarray, objectives).tolist(),
                     cast(np.ndarray, data).tolist(),
                 )
-                for objectives, data in zip(
-                    final_solutions_objectives, final_solutions_data_entries
-                )
+                for objectives, data in zip(results, solution_data)
             ]
 
             return SavedRun(

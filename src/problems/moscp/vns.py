@@ -1,54 +1,39 @@
 import random
-from typing import Any, Iterable
+from typing import Iterable
 
-from src.problems.moacbw.problem import MOACBWSolution
+import numpy as np
 
-
-def shuffled(lst: Iterable) -> list[Any]:
-    lst = list(lst)
-    random.shuffle(lst)
-    return lst
+from src.core.abstract import Delta
+from src.problems.moscp.problem import MOSCPSolution, _MOSCPSolution
 
 
-def swap_op(solution: MOACBWSolution) -> Iterable[MOACBWSolution]:
-    """Generates neighbors by swapping one selected item with one unselected item."""
-    solution_data = solution.data
+class FlipDelta(Delta[np.ndarray]):
+    def __init__(self, flip_index) -> None:
+        super().__init__()
+        self.flip_index = flip_index
 
-    index_order = shuffled(range(solution_data.size))
+    def apply(self, data: np.ndarray):
+        data[self.flip_index] = np.logical_not(data[self.flip_index])
 
-    for i in index_order:
-        for j in index_order:
-            if i >= j:
-                continue
-
-            new_data = solution_data.copy()
-            new_data[i], new_data[j] = new_data[j], new_data[i]
-            yield solution.new(new_data)
+    def revert(self, data: np.ndarray):
+        data[self.flip_index] = np.logical_not(data[self.flip_index])
 
 
-def swap_limited_op(solution: MOACBWSolution) -> Iterable[MOACBWSolution]:
-    """Generates neighbors by swapping one selected item with one unselected item."""
-    solution_data = solution.data
+def flip_op(solution: MOSCPSolution) -> Iterable[MOSCPSolution]:
+    for i in range(len(solution.data)):
+        delta = FlipDelta(i)
 
-    index_order = shuffled(range(solution_data.size - 1))
+        delta.apply(solution.data)
+        objectives = solution.problem.calculate_objectives(solution.data)
+        delta.revert(solution.data)
 
-    for i in index_order:
-        new_data = solution_data.copy()
-        new_data[i], new_data[i + 1] = new_data[i + 1], new_data[i]
-        yield solution.new(new_data)
+        yield _MOSCPSolution(solution.data, solution.problem, objectives, delta)
 
 
-def shake_swap(solution: MOACBWSolution, k: int) -> MOACBWSolution:
-    """
-    Randomly swaps two vertcies 'k' times.
-    """
-    solution_data = solution.data.copy()
-    n = solution_data.size
-
-    for _ in range(k):
-        i = random.randint(0, n - 1)
-        j = (n + random.randint(1, k) * (random.randint(0, 1) * 2 - 1)) % n
-
-        solution_data[i], solution_data[j] = solution_data[j], solution_data[i]
-
-    return solution.new(solution_data)
+def shake_flip(solution: MOSCPSolution, k: int) -> MOSCPSolution:
+    new_data = solution.get_data_copy()
+    flip_indices = random.sample(range(len(new_data)), k)
+    new_data[flip_indices] = np.logical_not(new_data[flip_indices])
+    return _MOSCPSolution(
+        new_data, solution.problem, solution.problem.calculate_objectives(new_data)
+    )

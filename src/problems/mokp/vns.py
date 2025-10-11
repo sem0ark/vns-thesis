@@ -38,7 +38,7 @@ class SwapDelta(Delta[np.ndarray]):
         )
 
 
-def add_remove_op(solution: MOKPSolution) -> Iterable[MOKPSolution]:
+def flip_op(solution: MOKPSolution) -> Iterable[MOKPSolution]:
     num_items = len(solution.data)
 
     for i in range(num_items):
@@ -49,7 +49,7 @@ def add_remove_op(solution: MOKPSolution) -> Iterable[MOKPSolution]:
         )
 
 
-def add_remove_op_v2(solution: MOKPSolution) -> Iterable[MOKPSolution]:
+def flip_op_v2(solution: MOKPSolution) -> Iterable[MOKPSolution]:
     num_items = len(solution.data)
 
     problem = cast(MOKPProblem, solution.problem)
@@ -78,6 +78,20 @@ def add_remove_op_v2(solution: MOKPSolution) -> Iterable[MOKPSolution]:
             objectives=tuple((-new_objectives).tolist()),
             delta=FlipDelta(i),
         )
+
+
+def flip_op_v3(solution: MOKPSolution) -> Iterable[MOKPSolution]:
+    for i in range(len(solution.data)):
+        delta = FlipDelta(i)
+
+        delta.apply(solution.data)
+        if not solution.problem.satisfies_constraints(solution.data):
+            continue
+
+        objectives = solution.problem.calculate_objectives(solution.data)
+        delta.revert(solution.data)
+
+        yield _MOKPSolution(solution.data, solution.problem, objectives, delta)
 
 
 def swap_op(solution: MOKPSolution) -> Iterable[MOKPSolution]:
@@ -131,7 +145,7 @@ def swap_op_v2(solution: MOKPSolution) -> Iterable[MOKPSolution]:
             )
 
 
-def shake_add_remove(solution: MOKPSolution, k: int) -> MOKPSolution:
+def shake_flip(solution: MOKPSolution, k: int) -> MOKPSolution:
     """
     Randomly adds or removes 'k' items.
     """

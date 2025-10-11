@@ -6,16 +6,15 @@ from typing import Callable, Iterable, cast
 import numpy as np
 from pymoo.algorithms.moo.nsga2 import NSGA2
 from pymoo.algorithms.moo.spea2 import SPEA2
-from pymoo.operators.sampling.rnd import PermutationRandomSampling
+from pymoo.operators.sampling.rnd import BinaryRandomSampling
 from pymoo.optimize import minimize
 from pymoo.termination.max_time import TimeBasedTermination
-from pymoo.util.nds.non_dominated_sorting import NonDominatedSorting
 
 from src.cli.problem_cli import CLI, InstanceRunner, RunConfig
 from src.cli.shared import Metadata, SavedRun, SavedSolution
 from src.core.abstract import OptimizerAbstract
 from src.problems.moscp.problem import MOSCPProblem, MOSCPProblemPymoo
-from src.problems.moscp.vns import shake_swap, swap_limited_op, swap_op
+from src.problems.moscp.vns import flip_op, shake_flip
 from src.problems.vns_runner_utils import run_vns_optimizer
 from src.vns.acceptance import AcceptBatch, AcceptBatchSkewed
 from src.vns.local_search import (
@@ -54,12 +53,12 @@ class VNSInstanceRunner(InstanceRunner):
                         ("FI", first_improvement),
                         ("QI", first_improvement_quick),
                     ],
-                    [("op_swap", swap_op), ("op_short_swap", swap_limited_op)],
+                    [("op_flip", flip_op)],
                 )
             ],
         ]
         shake_functions = [
-            ("shake_swap", shake_swap),
+            ("shake_flip", shake_flip),
         ]
 
         for (
@@ -88,7 +87,7 @@ class VNSInstanceRunner(InstanceRunner):
                 acceptance_criterion=acc_criteria,
                 shake_function=shake_func,
                 name=config_name,
-                version=15,
+                version=16,
             )
 
             yield config_name, self.make_func(optimizer)
@@ -117,6 +116,7 @@ class VNSInstanceRunner(InstanceRunner):
         return run
 
 
+
 class PymooInstanceRunner(InstanceRunner):
     def __init__(self, config: RunConfig):
         super().__init__(config)
@@ -139,7 +139,7 @@ class PymooInstanceRunner(InstanceRunner):
                 self.make_func(
                     name,
                     algorithm(
-                        sampling=PermutationRandomSampling(),
+                        sampling=BinaryRandomSampling(),
                         eliminate_duplicates=True,
                         pop_size=population,
                     ),
@@ -156,26 +156,29 @@ class PymooInstanceRunner(InstanceRunner):
             )
 
             results = res.F
-            if results is not None:
-                nd_sorting = NonDominatedSorting()
-                non_dominated_indices = nd_sorting.do(
-                    results, only_non_dominated_front=True
-                )
+            if results is None:
+                raise ValueError("Expected res.F to be non-null")
 
-                final_solutions_F = results[non_dominated_indices]
-            else:
-                final_solutions_F = np.array([])
+            solution_data = cast(None | np.ndarray, res.X)
+            if solution_data is None:
+                raise ValueError("Expected res.X to be non-null")
+
+            # for some reason even with binary sampling, result is still float
+            solution_data = np.round(solution_data).astype(bool)
 
             solutions_data = [
-                SavedSolution(cast(np.ndarray, sol).tolist())
-                for sol in final_solutions_F
+                SavedSolution(
+                    cast(np.ndarray, objectives).tolist(),
+                    cast(np.ndarray, data).tolist(),
+                )
+                for objectives, data in zip(results, solution_data)
             ]
 
             return SavedRun(
                 metadata=Metadata(
                     run_time_seconds=int(config.run_time_seconds),
                     name=name,
-                    version=4,
+                    version=5,
                     problem_name="MOSCP",
                     instance_name=Path(config.instance_path).stem,
                 ),

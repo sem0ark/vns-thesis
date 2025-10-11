@@ -128,11 +128,15 @@ class MOSCPProblem(Problem[np.ndarray]):
 
     def calculate_objectives(self, solution_data: np.ndarray) -> tuple[float, ...]:
         """Calculates the total cost for each objective."""
-        # Drastically increase costs in case of infeasible solution
-        # to still keep improvement gradient even for infeasible solution in the same minimization direction
-        multiplier = 1 if self.satisfies_constraints(solution_data) else 100
-        result = multiplier * np.sum(solution_data * self.costs, axis=1)
+        result = np.sum(solution_data * self.costs, axis=1)
+        if not self.satisfies_constraints(solution_data):
+            # Drastically increase costs in case of infeasible solution.
+            result += 1000000
+
         return tuple(result.tolist())
+
+    def load_solution(self, saved_solution_data) -> MOSCPSolution:
+        return _MOSCPSolution.from_json_serializable(self, saved_solution_data)
 
     @staticmethod
     def calculate_solution_distance(sol1: MOSCPSolution, sol2: MOSCPSolution) -> float:
@@ -163,12 +167,11 @@ class MOSCPProblemPymoo(ElementwiseProblem):
     def __init__(self, problem: MOSCPProblem):
         n_var = problem.num_sets
         n_obj = problem.num_objectives
-        n_constr = 0
 
         super().__init__(
             n_var=n_var,
             n_obj=n_obj,
-            n_constr=n_constr,
+            n_constr=1,
             xl=0.0,
             xu=1.0,
             vtype=float,
@@ -179,8 +182,6 @@ class MOSCPProblemPymoo(ElementwiseProblem):
         """
         Evaluate a single solution vector 'x' (vector of N floats).
         """
-        # np.argsort returns the indices that would sort the array.
-        # Basically ranking the results from 0 to N - 1
-        permutation_array = np.argsort(x).astype(int)
-        z1, z2 = self.problem_instance.calculate_objectives(permutation_array)
-        out["F"] = np.array([z1, z2], dtype=float)
+        x = np.round(x).astype(bool)
+        out["F"] = np.array(self.problem_instance.calculate_objectives(x), dtype=float)
+        out["G"] = int(self.problem_instance.satisfies_constraints(x)) - 1

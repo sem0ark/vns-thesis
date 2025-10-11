@@ -468,6 +468,7 @@ class CLI:
         instance_patterns: list[str],
         max_time: str,
         filter_expression: FilterExpression,
+        repeat_times: int,
     ):
         """Contains the logic for running optimizations and saving results."""
         run_time_seconds = parse_time_string(max_time)
@@ -486,7 +487,7 @@ class CLI:
             + "\n".join(instance_paths)
         )
 
-        for instance_path_str in instance_paths:
+        for instance_path_str in instance_paths * repeat_times:
             configuration = RunConfig(run_time_seconds, Path(instance_path_str))
             instance_path = Path(instance_path_str)
             instance_name = instance_path.stem
@@ -593,7 +594,7 @@ class CLI:
 
             if not runs_to_show:
                 click.echo(f"No runs matched the filters '{filter_expression}'.")
-                return
+                continue
 
             click.echo("Displaying raw metrics...")
             display_metrics(
@@ -628,11 +629,18 @@ class CLI:
             is_flag=True,
             default=False,
         )
+        @click.option(
+            "--repeat-times",
+            type=int,
+            required=False,
+            default=1,
+        )
         def run_command(
             instance: list[str],
             filter_string: FilterExpression,
             max_time: str,
             trace: bool,
+            repeat_times: int,
         ):
             """
             Executes optimization runs for a specified problem and instance(s).
@@ -644,13 +652,13 @@ class CLI:
                     from viztracer import VizTracer
 
                     with VizTracer(min_duration=20):
-                        self._execute_run_logic(instance, max_time, filter_string)
+                        self._execute_run_logic(instance, max_time, filter_string, repeat_times)
                 except ImportError:
                     click.echo(
                         "Warning: to use --trace, please, install viztracer with pip install viztracer"
                     )
             else:
-                self._execute_run_logic(instance, max_time, filter_string)
+                self._execute_run_logic(instance, max_time, filter_string, repeat_times)
 
         @cli.command(name="plot", help="Plot saved runs for a given instance.")
         @click.option(
@@ -692,14 +700,11 @@ class CLI:
         @cli.command(name="metrics", help="Show metrics for saved runs.")
         @common_options
         @click.option(
-            "--unary",
-            is_flag=True,
-            help="Displays a table of independent performance metrics for each configuration.",
-        )
-        @click.option(
-            "--coverage",
-            is_flag=True,
-            help="Displays a table of 1-1 coverage comparisons.",
+            "--metrics-type",
+            type=click.Choice(["unary", "coverage"]),
+            default="unary",
+            show_default=True,
+            help="--unary displays a table of independent performance metrics for each configuration, while --coverage displays a table of 1-1 coverage comparisons.",
         )
         @click.option(
             "--export",
@@ -716,8 +721,7 @@ class CLI:
         def metrics_command(
             instance: list[str],
             filter_string: FilterExpression,
-            unary: bool,
-            coverage: bool,
+            metrics_type: str,
             export: bool,
             output_file: Path | None,
         ):
@@ -728,8 +732,8 @@ class CLI:
             """
             self._execute_metrics_logic(
                 instance,
-                unary,
-                coverage,
+                metrics_type == "unary",
+                metrics_type == "coverage",
                 export,
                 filter_string,
                 output_file,
