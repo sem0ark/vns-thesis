@@ -41,17 +41,6 @@ class SwapDelta(Delta[np.ndarray]):
 def flip_op(solution: MOKPSolution) -> Iterable[MOKPSolution]:
     num_items = len(solution.data)
 
-    for i in range(num_items):
-        new_data = solution.get_data_copy()
-        new_data[i] = 1 - new_data[i]
-        yield _MOKPSolution(
-            new_data, solution.problem, solution.problem.calculate_objectives(new_data)
-        )
-
-
-def flip_op_v2(solution: MOKPSolution) -> Iterable[MOKPSolution]:
-    num_items = len(solution.data)
-
     problem = cast(MOKPProblem, solution.problem)
     total_profits = np.abs(np.array(solution.objectives))
     total_weights = np.sum(solution.data * problem.weights, axis=1)
@@ -80,40 +69,7 @@ def flip_op_v2(solution: MOKPSolution) -> Iterable[MOKPSolution]:
         )
 
 
-def flip_op_v3(solution: MOKPSolution) -> Iterable[MOKPSolution]:
-    for i in range(len(solution.data)):
-        delta = FlipDelta(i)
-
-        delta.apply(solution.data)
-        if not solution.problem.satisfies_constraints(solution.data):
-            continue
-
-        objectives = solution.problem.calculate_objectives(solution.data)
-        delta.revert(solution.data)
-
-        yield _MOKPSolution(solution.data, solution.problem, objectives, delta)
-
-
 def swap_op(solution: MOKPSolution) -> Iterable[MOKPSolution]:
-    """Generates neighbors by swapping one selected item with one unselected item."""
-
-    selected_items = np.where(solution.data == 1)[0]
-    unselected_items = np.where(solution.data == 0)[0]
-
-    for i in selected_items:
-        for j in unselected_items:
-            new_data = solution.get_data_copy()
-            new_data[i] = 0
-            new_data[j] = 1
-
-            yield _MOKPSolution(
-                new_data,
-                solution.problem,
-                solution.problem.calculate_objectives(new_data),
-            )
-
-
-def swap_op_v2(solution: MOKPSolution) -> Iterable[MOKPSolution]:
     """
     Generates neighbors by swapping one selected item with one unselected item,
     using incremental calculation for fast objective and feasibility checks.

@@ -14,13 +14,11 @@ from src.cli.problem_cli import CLI, InstanceRunner, RunConfig
 from src.cli.shared import Metadata, SavedRun, SavedSolution
 from src.core.abstract import OptimizerAbstract
 from src.problems.moscp.problem import MOSCPProblem, MOSCPProblemPymoo
-from src.problems.moscp.vns import flip_op, shake_flip
+from src.problems.moscp.vns import flip_op_v2, shake_flip
 from src.problems.vns_runner_utils import run_vns_optimizer
 from src.vns.acceptance import AcceptBatch, AcceptBatchSkewed
 from src.vns.local_search import (
     best_improvement,
-    first_improvement,
-    first_improvement_quick,
     noop,
 )
 from src.vns.optimizer import VNSOptimizer
@@ -32,12 +30,17 @@ class VNSInstanceRunner(InstanceRunner):
         self.problem = MOSCPProblem.load(str(config.instance_path))
 
     def get_variants(self) -> Iterable[tuple[str, Callable[[RunConfig], SavedRun]]]:
+        alpha_weights = np.mean(self.problem.costs, axis=1)
+        
         acceptance_criteria = [
             ("batch", AcceptBatch()),
-            (
-                "skewed",
-                AcceptBatchSkewed([5.0, 5.0], MOSCPProblem.calculate_solution_distance),
-            ),
+            *[
+                (
+                    f"skewed a{mult}",
+                    AcceptBatchSkewed(alpha_weights * mult, MOSCPProblem.calculate_solution_distance),
+                )
+                for mult in range(1, 10 + 1)
+            ],
         ]
 
         local_search_functions = [
@@ -48,12 +51,8 @@ class VNSInstanceRunner(InstanceRunner):
                     (search_name, search_func_factory),
                     (op_name, op_func),
                 ) in itertools.product(
-                    [
-                        ("BI", best_improvement),
-                        ("FI", first_improvement),
-                        ("QI", first_improvement_quick),
-                    ],
-                    [("op_flip", flip_op)],
+                    [("BI", best_improvement)],
+                    [("op_flip", flip_op_v2)],
                 )
             ],
         ]

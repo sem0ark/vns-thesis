@@ -1,10 +1,10 @@
 import random
-from typing import Iterable
+from typing import Iterable, cast
 
 import numpy as np
 
 from src.core.abstract import Delta
-from src.problems.moscp.problem import MOSCPSolution, _MOSCPSolution
+from src.problems.moscp.problem import MOSCPProblem, MOSCPSolution, _MOSCPSolution
 
 
 class FlipDelta(Delta[np.ndarray]):
@@ -28,6 +28,37 @@ def flip_op(solution: MOSCPSolution) -> Iterable[MOSCPSolution]:
         delta.revert(solution.data)
 
         yield _MOSCPSolution(solution.data, solution.problem, objectives, delta)
+
+
+def flip_op_v2(solution: MOSCPSolution) -> Iterable[MOSCPSolution]:
+    problem = cast(MOSCPProblem, solution.problem)
+
+    current_set_selection = solution.data
+    current_objectives = np.array(solution.objectives)
+
+    for i in range(problem.num_variables):
+        delta = FlipDelta(i)
+
+        delta.apply(solution.data)
+        is_feasible = problem.satisfies_constraints(solution.data)
+        delta.revert(solution.data)
+
+        if not is_feasible:
+            continue
+
+        is_selected = current_set_selection[i]
+        set_costs = problem.costs[:, i]
+        if is_selected:
+            new_objectives = current_objectives - set_costs
+        else:
+            new_objectives = current_objectives + set_costs
+
+        yield _MOSCPSolution(
+            solution.data,
+            problem,
+            objectives=tuple(new_objectives.tolist()),
+            delta=delta,
+        )
 
 
 def shake_flip(solution: MOSCPSolution, k: int) -> MOSCPSolution:

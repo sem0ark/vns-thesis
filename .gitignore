@@ -5,6 +5,8 @@ metrics
 *.xlsx
 *.png
 
+.vscode
+
 # Ignore viztracer data
 result.json
 

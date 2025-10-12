@@ -16,20 +16,14 @@ from src.core.abstract import OptimizerAbstract
 from src.problems.mokp.problem import MOKPProblem, MOKPPymoo
 from src.problems.mokp.vns import (
     flip_op,
-    flip_op_v2,
-    flip_op_v3,
     shake_flip,
     shake_swap,
     swap_op,
-    swap_op_v2,
 )
 from src.problems.vns_runner_utils import run_vns_optimizer
 from src.vns.acceptance import AcceptBatch, AcceptBatchSkewed
 from src.vns.local_search import (
     best_improvement,
-    composite,
-    first_improvement,
-    first_improvement_quick,
     noop,
 )
 from src.vns.optimizer import VNSOptimizer
@@ -41,31 +35,19 @@ class VNSInstanceRunner(InstanceRunner):
         self.problem = MOKPProblem.load(str(config.instance_path))
 
     def get_variants(self) -> Iterable[tuple[str, Callable[[RunConfig], SavedRun]]]:
-        num_objectives = self.problem.num_objectives
         alpha_weights = np.mean(self.problem.profits, axis=1)
 
         acceptance_criteria = [
             ("batch", AcceptBatch()),
-            (
-                "skewed-1",
-                AcceptBatchSkewed(alpha_weights * 1, MOKPProblem.calculate_solution_distance),
-            ),
-            (
-                "skewed-2",
-                AcceptBatchSkewed(alpha_weights * 2, MOKPProblem.calculate_solution_distance),
-            ),
-            (
-                "skewed-4",
-                AcceptBatchSkewed(alpha_weights * 4, MOKPProblem.calculate_solution_distance),
-            ),
-            (
-                "skewed-8",
-                AcceptBatchSkewed(alpha_weights * 8, MOKPProblem.calculate_solution_distance),
-            ),
-            (
-                "skewed-16",
-                AcceptBatchSkewed(alpha_weights * 16, MOKPProblem.calculate_solution_distance),
-            ),
+            *[
+                (
+                    f"skewed a{mult}",
+                    AcceptBatchSkewed(
+                        alpha_weights * mult, MOKPProblem.calculate_solution_distance
+                    ),
+                )
+                for mult in range(1, 10 + 1)
+            ],
         ]
         local_search_functions = [
             ("noop", noop()),
@@ -77,40 +59,12 @@ class VNSInstanceRunner(InstanceRunner):
                 ) in itertools.product(
                     [
                         ("BI", best_improvement),
-                        ("FI", first_improvement),
-                        ("QI", first_improvement_quick),
                     ],
                     [
-                        ("op_flip_v2", flip_op_v2),
-                        ("op_swap_v2", swap_op_v2),
+                        ("op_flip", flip_op),
+                        ("op_swap", swap_op),
                     ],
                 )
-            ],
-            *[
-                (
-                    f"composite_{search_name}_flip_swap",
-                    composite(
-                        [
-                            composite(
-                                [
-                                    search_func_factory(flip_op, obj_i)
-                                    for obj_i in range(num_objectives)
-                                ]
-                            ),
-                            composite(
-                                [
-                                    search_func_factory(swap_op, obj_i)
-                                    for obj_i in range(num_objectives)
-                                ]
-                            ),
-                        ]
-                    ),
-                )
-                for (search_name, search_func_factory) in [
-                    ("BI", best_improvement),
-                    ("FI", first_improvement),
-                    ("QI", first_improvement_quick),
-                ]
             ],
         ]
         shake_functions = [
