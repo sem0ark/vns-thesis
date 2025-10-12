@@ -15,13 +15,13 @@ from src.cli.filter_param import ClickFilterExpression, FilterExpression
 
 METRIC_MAPPING = {
     "hypervolume": "relative hypervolume loss",
-    "epsilon": "multiplicative epsilon",
+    # "epsilon": "multiplicative epsilon",
     "inverted_generational_distance": "IGD",
     "r_metric": "R2 metric",
 }
 METRIC_MAPPING_SHORT = {
     "hypervolume": "HV loss",
-    "epsilon": "E.mult.",
+    # "epsilon": "E.mult.",
     "inverted_generational_distance": "IGD",
     "r_metric": "R2 metric",
     "relative hypervolume loss": "HV loss",
@@ -80,26 +80,30 @@ def load_metrics_data(file_paths: list[Path]) -> dict[str, dict[str, dict[str, f
     return all_metrics
 
 
+# dictionary mapping (Instance, Filter_Name, Metric_Key) to a list of configuration names and their aggregated values.
+DetailedResults = dict[tuple[str, str, str], list[tuple[str, float]]]
+
+
 def calculate_aggregated_metrics(
     all_metrics: dict[str, dict[str, dict[str, float]]],
-    filters_info: list[tuple[str, FilterExpression]],
-    metric_keys: list[str] = METRIC_KEYS,
+    filters_info: list[tuple[str, Any]], # Use Any for FilterExpression type
+    metric_keys: list[str],
     aggregation_type: Literal["min", "max", "mean"] = "mean",
-) -> pd.DataFrame:
+) -> tuple[pd.DataFrame, DetailedResults]: # <-- RETURN TYPE CHANGE
     """
-    Calculates the average value for all standard metrics, grouped by filter
-    and instance, and sorts the results by instance name.
-
-    The resulting DataFrame has:
-    - Index: MultiIndex (Instance, Metric_Key)
-    - Columns: Filter names
-    - Values: Average metric value for matched configs
+    Calculates the average metric value per filter and instance.
+    Also returns detailed, config-level metric results for internal ranking.
     """
     results: dict[tuple[str, str], dict[str, float]] = defaultdict(dict)
+    detailed_results: DetailedResults = defaultdict(list)
 
     for file_name, instance_data in all_metrics.items():
         for filter_name, filter_exp in filters_info:
             matched_values_by_metric: dict[str, list[float]] = {
+                key: [] for key in metric_keys
+            }
+            # NEW: Dictionary to track configuration name and its metric value
+            matched_configs_by_metric: dict[str, list[tuple[str, float]]] = {
                 key: [] for key in metric_keys
             }
 
@@ -107,38 +111,107 @@ def calculate_aggregated_metrics(
                 if filter_exp.is_match(config_name):
                     for key in metric_keys:
                         if key in metrics:
+                            # For the main DF: list of values for aggregation
                             matched_values_by_metric[key].append(metrics[key])
+
+                            # For the detailed results: (config_name, value)
+                            matched_configs_by_metric[key].append((config_name, metrics[key]))
 
             for metric_key in metric_keys:
                 matched_values = matched_values_by_metric[metric_key]
 
                 if matched_values:
                     if aggregation_type == "max":
-                        average_value = max(matched_values)
+                        agg_value = max(matched_values)
                     elif aggregation_type == "min":
-                        average_value = min(matched_values)
+                        agg_value = min(matched_values)
                     else:
-                        average_value = sum(matched_values) / len(matched_values)
+                        agg_value = sum(matched_values) / len(matched_values)
                 else:
-                    average_value = float("nan")
+                    agg_value = float("nan")
 
-                results[(file_name, metric_key)][filter_name] = average_value
+                results[(file_name, metric_key)][filter_name] = agg_value
+
+                # NEW: Store detailed results
+                if matched_configs_by_metric[metric_key]:
+                    detailed_results[(file_name, filter_name, metric_key)] = matched_configs_by_metric[metric_key]
+
 
     df = pd.DataFrame.from_dict(results, orient="index")
     df.index = pd.MultiIndex.from_tuples(df.index, names=["Instance", "Metric_Key"])
     df = df.sort_index(level="Instance", axis=0)
     df.columns.name = "Filter"
 
-    return df
+    return df, detailed_results
+
+
+def get_internal_ranking(
+    detailed_results: DetailedResults,
+) -> dict[tuple[str, str], pd.DataFrame]:
+    """
+    Calculates the average rank and std deviation for each CONFIGURATION NAME
+    within each filter group (across all instances).
+
+    Returns a dictionary keyed by (Filter Name, Metric Key).
+    """
+    internal_ranking_data = defaultdict(lambda: defaultdict(list)) # Key: (Filter, Metric), Value: {Config: [Ranks...]}
+
+    # 1. Calculate ranks per instance
+    for (file_name, filter_name, metric_key), config_data in detailed_results.items():
+        is_minimized = metric_key in MINIMIZED_METRICS
+
+        # Unpack data into a DataFrame for ranking
+        df_data = pd.DataFrame(config_data, columns=["Configuration", "Metric_Value"])
+
+        # Rank the configurations for this specific instance/filter group
+        # Smaller values get smaller ranks if minimized, larger values get smaller ranks if maximized
+        rank_ascending = is_minimized # True if minimizing (smaller value = better rank)
+
+        df_data["Rank"] = df_data["Metric_Value"].rank(
+            method="average", ascending=rank_ascending
+        )
+
+        # Store the rank of each configuration
+        for _, row in df_data.iterrows():
+            key = (filter_name, metric_key)
+            config = row["Configuration"]
+            rank = row["Rank"]
+            internal_ranking_data[key][config].append(rank)
+
+    # 2. Compute Average Rank and Std Dev
+    final_internal_rankings = {}
+
+    for (filter_name, metric_key), config_ranks in internal_ranking_data.items():
+        ranking_list = []
+        is_minimized = is_minimized = metric_key in MINIMIZED_METRICS
+
+        for config, ranks in config_ranks.items():
+            avg_rank = np.mean(ranks)
+            std_rank = np.std(ranks)
+            ranking_list.append(
+                {"Configuration": config, "Avg. Rank": avg_rank, "Std. Rank": std_rank}
+            )
+
+        ranking_df = pd.DataFrame(ranking_list).set_index("Configuration")
+
+        # Determine the final ranking based on average rank (always ascending)
+        ranking_df["Rank"] = ranking_df["Avg. Rank"].rank(method="min").astype(int)
+        ranking_df = ranking_df.sort_values(by="Avg. Rank", ascending=True)
+
+        # Reorder columns and store
+        ranking_df = ranking_df[["Rank", "Avg. Rank", "Std. Rank"]]
+        final_internal_rankings[(filter_name, metric_key)] = ranking_df
+
+    return final_internal_rankings
 
 
 def perform_nemenyi_test_on_metrics(
     avg_df: pd.DataFrame, metric_names: list[str], alpha: float = 0.05
 ) -> dict[str, dict[str, Any]]:
-    """Calculate all necessary information from based on the averaged mentrics values.
+    """Calculate all necessary information from based on the averaged metrics values.
 
     Args:
-        avg_df (pd.DataFrame): Dataframe with aggregated metrics values per instance and ocnfiguration.
+        avg_df (pd.DataFrame): Dataframe with aggregated metrics values per instance and configuration.
         metric_names (list[str]): Metrics to be considered in the tests
         alpha (float, optional): Confidence value. Defaults to 0.05.
 
@@ -163,7 +236,7 @@ def perform_nemenyi_test_on_metrics(
 
         is_minimized_metric = display_name in MINIMIZED_METRICS
         ranks = metric_data.rank(
-            axis=1, method="average", ascending=is_minimized_metric
+            axis=1, method="average", ascending=is_minimized_metric # type: ignore
         )
 
         rank_array = np.asarray(ranks.dropna())
@@ -174,27 +247,24 @@ def perform_nemenyi_test_on_metrics(
             )
             continue
 
-        # --- Friedman Test ---
         stat, p = stats.friedmanchisquare(*rank_array.T)
         reject_h0 = p <= alpha
 
-        # --- Nemenyi Test ---
         nemenyi_scores = pd.DataFrame()
         if reject_h0:
             nemenyi_scores = scikit_posthocs.posthoc_nemenyi_friedman(rank_array)
             labels = ranks.columns
             nemenyi_scores = nemenyi_scores.set_axis(labels, axis="columns")
-            nemenyi_scores = nemenyi_scores.set_axis(labels, axis="rows")
+            nemenyi_scores = nemenyi_scores.set_axis(labels, axis="rows") # type: ignore
 
-        # --- Calculate Average Ranks ---
         average_ranks = cast(pd.Series, ranks.mean(axis=0)).sort_values(ascending=True)
 
         results_by_metric[display_name] = {
             "friedman_p": p,
             "rejected": reject_h0,
             "nemenyi_scores": nemenyi_scores,
-            "ranks": ranks,  # Keep for the new ranking function
-            "average_ranks": average_ranks,  # New information
+            "ranks": ranks,
+            "average_ranks": average_ranks,
             "is_minimized_metric": is_minimized_metric,
         }
 
@@ -250,44 +320,131 @@ def display_and_get_ranking(
     return ranking_results
 
 
-def plot_nemenyi_scores(results: dict[str, dict[str, Any]], plot_file: Path):
+def plot_combined_results(
+    statistical_results: dict[str, dict[str, Any]],
+    detailed_results: DetailedResults,
+    metric_keys: list[str],
+    plot_file: Path,
+    metric_mapping: dict[str, str],
+):
     """
-    Generates and saves a sign-plot of the Nemenyi post-hoc scores for each metric
-    in a single-column (vertical) layout and includes a single, shared colorbar.
+    Generates a combined figure: Nemenyi sign plots on the top row and
+    Box plots on the bottom row, aligned by metric.
     """
-    plottable_results = {k: v for k, v in results.items() if v.get("rejected", False)}
-    num_plottable = len(plottable_results)
 
-    if num_plottable == 0:
-        click.echo("\nNo significant differences found to plot.", err=True)
+    # 1. Prepare data and plot configuration
+    all_metrics = list(metric_keys)
+    num_metrics = len(all_metrics)
+
+    # Restructure detailed_results into a DataFrame for easy grouping
+    plot_data_list = []
+    for (file_name, filter_name, metric_key), config_data in detailed_results.items():
+        for _, metric_value in config_data:
+            plot_data_list.append({
+                "Filter_Group": filter_name,
+                "Metric_Key": metric_key,
+                "Metric_Value": metric_value,
+            })
+
+    if not plot_data_list:
+        click.echo("Error: No data found to plot.", err=True)
         return
 
-    # Use a dynamic grid for multiple plots in a single figure
+    full_df = pd.DataFrame(plot_data_list)
+
+    # Get all unique filter groups (X-axis labels)
+    filter_groups = sorted(full_df["Filter_Group"].unique().tolist())
+    num_filters = len(filter_groups)
+
+    # Use a 2-row, N-column grid (N = number of metrics)
     fig, axes = plt.subplots(
-        1,
-        num_plottable,
-        figsize=(5 * num_plottable, 5),
+        2,
+        num_metrics,
+        figsize=(4 * num_metrics, 8), # Adjust figure size dynamically
         squeeze=False,
     )
-    axes = axes.flatten()
+
     heatmap_args = {
         "linewidths": 0.25,
         "linecolor": "0.5",
+        "cbar_ax_bbox": [0.97, 0.35, 0.04, 0.3],
         "square": True,
         "cbar": False,
     }
 
-    for i, (metric_name, result) in enumerate(plottable_results.items()):
-        ax = axes[i]
-        scores: pd.DataFrame = result["nemenyi_scores"]
-        scikit_posthocs.sign_plot(scores, ax=ax, **heatmap_args)
-        ax.set_title(f"Nemenyi Post-Hoc Test ({metric_name})", fontsize=10)
-        ax.tick_params(axis="x", rotation=90)
-        ax.tick_params(axis="y", rotation=0)
+    # 2. Iterate through ALL metrics and plot Nemenyi (Top) and Box Plot (Bottom)
+    for i, metric_key in enumerate(all_metrics):
+        metric_name = metric_mapping.get(metric_key, metric_key)
+
+        # --- TOP ROW: NEMENYI SIGN PLOT ---
+        ax_nemenyi = axes[0, i]
+
+        if metric_name in statistical_results and statistical_results[metric_name].get("rejected", False):
+            # Nemenyi plot is only drawn if H0 was rejected
+            scores: pd.DataFrame = statistical_results[metric_name]["nemenyi_scores"]
+
+            # Ensure the order of filters matches the data plot order
+            scores = scores.reindex(index=filter_groups, columns=filter_groups)
+
+            # scikit_posthocs.sign_plot creates a heatmap
+            scikit_posthocs.sign_plot(scores, ax=ax_nemenyi, **heatmap_args)
+            ax_nemenyi.set_title(f"Nemenyi ({metric_name})", fontsize=10)
+            ax_nemenyi.set_xticklabels(ax_nemenyi.get_xticklabels(), rotation=90)
+            ax_nemenyi.set_yticklabels(ax_nemenyi.get_yticklabels(), rotation=0)
+            ax_nemenyi.set_xlabel('')
+            ax_nemenyi.set_ylabel('')
+        else:
+            # If Nemenyi is not significant or missing, show a placeholder
+            ax_nemenyi.text(0.5, 0.5, "H0 Not Rejected",
+                            horizontalalignment='center',
+                            verticalalignment='center',
+                            transform=ax_nemenyi.transAxes,
+                            fontsize=12, color='gray')
+            ax_nemenyi.set_title(f"Nemenyi ({metric_name})", fontsize=10)
+            ax_nemenyi.set_xticks([])
+            ax_nemenyi.set_yticks([])
+            ax_nemenyi.spines['top'].set_visible(False)
+            ax_nemenyi.spines['right'].set_visible(False)
+            ax_nemenyi.spines['bottom'].set_visible(False)
+            ax_nemenyi.spines['left'].set_visible(False)
+
+
+        # --- BOTTOM ROW: BOX PLOT ---
+        ax_box = axes[1, i]
+
+        metric_df = full_df[full_df["Metric_Key"] == metric_key].copy()
+
+        # Prepare data for Matplotlib: a list of arrays, ensuring correct order
+        data_to_plot = [
+            metric_df[metric_df["Filter_Group"] == group]["Metric_Value"].values.astype(float)
+            for group in filter_groups
+        ]
+
+        # Create the Box Plot
+        box_plot = ax_box.boxplot(
+            data_to_plot,
+            tick_labels=filter_groups,
+            patch_artist=True,
+            medianprops={'color': 'black', 'linewidth': 1.5},
+            flierprops={'marker': 'o', 'markersize': 4, 'markerfacecolor': 'red', 'alpha': 0.5}
+        )
+
+        colors = plt.cm.Set2.colors[:num_filters]
+        for patch, color in zip(box_plot['boxes'], colors):
+            patch.set_facecolor(color)
+
+        ax_box.set_title(f"Distribution ({metric_name})", fontsize=8)
+        ax_box.tick_params(axis='x', rotation=45)
+
+        ax_box.grid(axis='y', linestyle='--', alpha=0.7)
+
+
+    # 3. Finalize and Save Figure
+    fig.tight_layout(pad=5.0)
 
     try:
         plt.savefig(plot_file, bbox_inches="tight", dpi=300)
-        click.echo(f"\nNemenyi sign-plots saved to: {plot_file}")
+        click.echo(f"\nCombined Nemenyi and Box plots saved to: {plot_file}")
     except Exception as e:
         click.echo(f"\nError saving plot file {plot_file}: {e}", err=True)
     finally:
@@ -332,7 +489,6 @@ def plot_nemenyi_scores(results: dict[str, dict[str, Any]], plot_file: Path):
     help="Optional path to save the resulting CSV or Excel file.",
 )
 @click.option(
-    "-p",
     "--plot-file",
     type=click.Path(path_type=Path),
     default=None,
@@ -412,7 +568,7 @@ def compare_metrics(
         return
 
     try:
-        avg_df = calculate_aggregated_metrics(
+        avg_df, detailed_results = calculate_aggregated_metrics(
             all_metrics, filter_objects, METRIC_KEYS, aggregate_func
         )
 
@@ -445,10 +601,12 @@ def compare_metrics(
         else:
             click.echo("  Status: NO SIGNIFICANT DIFFERENCE (H0 Not Rejected).")
 
-    # 5. Display Method Ranking (NEW)
     ranking_data = display_and_get_ranking(statistical_results)
+    internal_rankings = get_internal_ranking(detailed_results)
+    for (filter_name, metric_key), ranking_df in internal_rankings.items():
+        click.echo(f"\nFilter: {filter_name}, Metric: {metric_key}")
+        print(ranking_df.to_string(float_format="%.3f"))
 
-    # 6. Save Output
     if output_file:
         try:
             if output_file.suffix.lower() in [".xlsx", ".xls"]:
@@ -480,9 +638,14 @@ def compare_metrics(
                 f"\nError: Could not save output file {output_file}: {e}", err=True
             )
 
-    # 7. Plot Nemenyi Sign-Plot
     if plot_file:
-        plot_nemenyi_scores(statistical_results, plot_file)
+        plot_combined_results(
+            statistical_results,
+            detailed_results,
+            METRIC_KEYS,
+            plot_file,
+            METRIC_MAPPING,
+        )
 
 
 if __name__ == "__main__":
