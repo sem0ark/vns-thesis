@@ -221,7 +221,7 @@ def calculate_metrics(
     instance_path: Path,
     all_runs_grouped: dict[str, list[SavedRun]],
     filtered_runs_grouped: dict[str, list[SavedRun]],
-) -> dict[str, Metrics]:
+) -> tuple[dict[str, Metrics], dict[str, list[Metrics]]]:
     """
     Calculates performance metrics for each run, and then averages them across multiple runs
     for the same configuration.
@@ -248,13 +248,13 @@ def calculate_metrics(
         reference_front = merge_runs_to_non_dominated_front(all_runs)
 
     if reference_front.size == 0:
-        return {}
+        return {}, {}
 
     if reference_front.size == 0:
         logging.error(
             "Failed to create a reference front from the provided runs or file."
         )
-        return {}
+        return {}, {}
 
     num_objectives = reference_front.shape[1]
     hypervolume_reference_point = _get_hypervolume_reference_point([reference_front])
@@ -266,6 +266,7 @@ def calculate_metrics(
     r2_ideal_point = np.min(reference_front, axis=0)
     r2_weights = _generate_uniform_weights(num_objectives, num_weights=100)
 
+    metrics_results_aggregated = {}
     metrics_results = {}
 
     for run_name, runs in filtered_runs_grouped.items():
@@ -291,7 +292,7 @@ def calculate_metrics(
             hypervolume_indicator = HV(ref_point=hypervolume_reference_point)
             relative_hypervolume = (
                 reference_front_hypervolume
-                - (hypervolume_indicator.do(front) or np.nan)
+                - (hypervolume_indicator.do(front) or 0.0)
             ) / reference_front_hypervolume
 
             # Multiplicative Epsilon. For minimization, smaller is better.
@@ -323,14 +324,55 @@ def calculate_metrics(
                 [m.inverted_generational_distance for m in run_metrics_list]
             )
 
-            metrics_results[run_name] = Metrics(
+            metrics_results_aggregated[run_name] = Metrics(
                 epsilon=float(avg_epsilon),
                 hypervolume=float(avg_hypervolume),
                 r_metric=float(avg_r_metric),
                 inverted_generational_distance=float(avg_igd),
             )
 
-    return metrics_results
+            metrics_results[run_name] = run_metrics_list
+
+    return metrics_results_aggregated, metrics_results
+
+
+def export_unary_metrics(
+    instance_path: Path,
+    all_runs_grouped: dict[str, list[SavedRun]],
+    filtered_runs_grouped: dict[str, list[SavedRun]],
+):
+    _, metrics_all = calculate_metrics(instance_path, all_runs_grouped, filtered_runs_grouped)
+
+    metrics_for_export = {}
+
+    for run_name, metric_list in metrics_all.items():
+        run_output = defaultdict(list)
+        for metrics_obj in metric_list:
+            for key, value in asdict(metrics_obj).items():
+                run_output[key].append(float(value)) 
+
+        metrics_for_export[run_name] = run_output
+
+    COMMON_METRICS_FOLDER.mkdir(parents=True, exist_ok=True)
+    metadata = next(iter(filtered_runs_grouped.values()))[0].metadata
+    problem_name = metadata.problem_name
+    instance_name = metadata.instance_name
+    json_output_path = (
+        COMMON_METRICS_FOLDER / f"{problem_name}_{instance_name}_unary_metrics.json"
+    )
+    with open(json_output_path, mode="w") as f:
+        json.dump(
+            {
+                "metadata": {
+                    "instance_name": instance_name,
+                    "problem_name": problem_name,
+                },
+                "metrics": metrics_for_export,
+            },
+            f,
+        )
+
+    print(f"Saved unary metrics file to {json_output_path}.")
 
 
 def calculate_coverage_metrics(
@@ -429,12 +471,12 @@ def prepare_unary_metrics_table_data(
     instance_path: Path,
     all_runs_grouped: dict[str, list[SavedRun]],
     filtered_runs_grouped: dict[str, list[SavedRun]],
-) -> tuple[dict[str, Metrics], tuple[list[str], list[list[Any]]]]:
+) -> tuple[list[str], list[list[Any]]]:
     """
     Calculates metrics and prepares the unary metrics table data.
     Returns (metrics, (headers, table_data)).
     """
-    metrics = calculate_metrics(instance_path, all_runs_grouped, filtered_runs_grouped)
+    metrics, _ = calculate_metrics(instance_path, all_runs_grouped, filtered_runs_grouped)
     # Sort the metrics. Lower values are better for all of them.
     sorted_metrics = sorted(
         metrics.items(),
@@ -474,17 +516,16 @@ def prepare_unary_metrics_table_data(
         ]
         table_data.append(row_str)
 
-    return metrics, (headers, table_data)
+    return headers, table_data
 
 
 def display_unary_metrics(
     instance_path: Path,
     all_runs_grouped: dict[str, list[SavedRun]],
     filtered_runs_grouped: dict[str, list[SavedRun]],
-    export_to_common_json_format: bool,
     output_file: Path | None = None,
 ):
-    metrics, (unary_headers, unary_table_data) = prepare_unary_metrics_table_data(
+    (unary_headers, unary_table_data) = prepare_unary_metrics_table_data(
         instance_path, all_runs_grouped, filtered_runs_grouped
     )
 
@@ -514,28 +555,6 @@ def display_unary_metrics(
             sheet_name="Unary Metrics",
         )
 
-    if export_to_common_json_format:
-        COMMON_METRICS_FOLDER.mkdir(parents=True, exist_ok=True)
-        metadata = next(iter(filtered_runs_grouped.values()))[0].metadata
-        problem_name = metadata.problem_name
-        instance_name = metadata.instance_name
-        json_output_path = (
-            COMMON_METRICS_FOLDER / f"{problem_name}_{instance_name}_unary_metrics.json"
-        )
-        with open(json_output_path, mode="w") as f:
-            json.dump(
-                {
-                    "metadata": {
-                        "instance_name": instance_name,
-                        "problem_name": problem_name,
-                    },
-                    "metrics": {k: asdict(entry) for k, entry in metrics.items()},
-                },
-                f,
-            )
-
-        print(f"Saved unary metrics file to {json_output_path}.")
-
 
 def display_metrics(
     instance_path: Path,
@@ -550,12 +569,18 @@ def display_metrics(
     Calculates and displays all metrics (unary and coverage),
     with an option to export them.
     """
-    if unary or export_to_common_json_format:
+    if export_to_common_json_format:
+        export_unary_metrics(
+            instance_path,
+            all_runs_grouped,
+            filtered_runs_grouped,
+        )
+
+    if unary:
         display_unary_metrics(
             instance_path,
             all_runs_grouped,
             filtered_runs_grouped,
-            export_to_common_json_format,
             output_file,
         )
 

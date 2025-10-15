@@ -2,10 +2,11 @@ import glob
 import json
 from collections import defaultdict
 from pathlib import Path
-from typing import Any, Literal, cast
+from typing import Any, cast
 
 import click
 import matplotlib.pyplot as plt
+import seaborn as sns
 import numpy as np
 import pandas as pd
 import scikit_posthocs
@@ -35,39 +36,53 @@ METRIC_NAMES = list(METRIC_MAPPING.values())
 # NOTE: at least for now all provided metrics are to be minimized
 MINIMIZED_METRICS = METRIC_KEYS + METRIC_NAMES
 
-AggregationMode = Literal["min", "max", "mean"]
 
+RawLoadedMetrics = dict[str, dict[str, dict[str, list[float]]]]
 
-def load_metrics_data(file_paths: list[Path]) -> dict[str, dict[str, dict[str, float]]]:
+def load_metrics_data(file_paths: list[Path]) -> RawLoadedMetrics:
     """
-    Loads data from multiple JSON files into a nested dictionary structure:
-    {file_name: {config_name: {metric_name: value, ...}, ...}, ...}
+    Loads data from multiple JSON files. If a metric value is a list (multiple runs),
+    it preserves the list of raw values for that configuration and metric.
+    {file_name: {config_name: {metric_name: [value_1, value_2, ...], ...}, ...}, ...}
     """
-    all_metrics: dict[str, dict[str, dict[str, float]]] = {}
+    all_metrics: RawLoadedMetrics = {}
 
     for path in file_paths:
         try:
             with open(path, "r") as f:
                 data = json.load(f)
-                metrics_data = data["metrics"]
+                metrics_data = data.get("metrics", {})
 
-                if not isinstance(metrics_data, dict):
-                    click.echo(
-                        f"Warning: Skipping file {path.name}. Root is not a dictionary.",
-                        err=True,
-                    )
-                    continue
+            if not isinstance(metrics_data, dict):
+                click.echo(
+                    f"Warning: Skipping file {path.name}. Root 'metrics' is not a dictionary.",
+                    err=True,
+                )
+                continue
 
-                processed_data = {}
-                for config_name, metrics in metrics_data.items():
-                    if isinstance(metrics, dict):
-                        processed_data[config_name] = {
-                            k: float(v)
-                            for k, v in metrics.items()
-                            if isinstance(v, (int, float))
-                        }
+            processed_data = {}
+            for config_name, metrics in metrics_data.items():
+                if isinstance(metrics, dict):
+                    processed_data[config_name] = {}
+                    for k, v in metrics.items():
+                        raw_values: list[float] = []
 
-                all_metrics[path.name] = processed_data
+                        if isinstance(v, list):
+                            # Preserve the list of raw values
+                            try:
+                                raw_values = [float(x) for x in v if x is not None]
+                            except (ValueError, TypeError):
+                                click.echo(f"Warning: Non-numeric list in {path.name} for {config_name}/{k}. Skipping.", err=True)
+                                continue
+                        elif isinstance(v, (int, float)):
+                            raw_values = [float(v)]
+                        else:
+                            continue
+
+                        if raw_values:
+                            processed_data[config_name][k] = raw_values
+
+            all_metrics[path.name] = processed_data
 
         except json.JSONDecodeError:
             click.echo(f"Warning: Skipping file {path.name}. Malformed JSON.", err=True)
@@ -80,69 +95,46 @@ def load_metrics_data(file_paths: list[Path]) -> dict[str, dict[str, dict[str, f
     return all_metrics
 
 
-# dictionary mapping (Instance, Filter_Name, Metric_Key) to a list of configuration names and their aggregated values.
+
+
+
 DetailedResults = dict[tuple[str, str, str], list[tuple[str, float]]]
 
 
-def calculate_aggregated_metrics(
-    all_metrics: dict[str, dict[str, dict[str, float]]],
-    filters_info: list[tuple[str, Any]], # Use Any for FilterExpression type
+def group_raw_metrics(
+    all_metrics: RawLoadedMetrics,
+    filters_info: list[tuple[str, Any]],
     metric_keys: list[str],
-    aggregation_type: Literal["min", "max", "mean"] = "mean",
-) -> tuple[pd.DataFrame, DetailedResults]: # <-- RETURN TYPE CHANGE
+) -> DetailedResults:
     """
-    Calculates the average metric value per filter and instance.
-    Also returns detailed, config-level metric results for internal ranking.
+    Calculates the average metric value per filter and instance for statistical tests (df).
+    Also returns detailed, raw config-level metric results for distribution plots (detailed_results).
     """
-    results: dict[tuple[str, str], dict[str, float]] = defaultdict(dict)
     detailed_results: DetailedResults = defaultdict(list)
 
     for file_name, instance_data in all_metrics.items():
         for filter_name, filter_exp in filters_info:
-            matched_values_by_metric: dict[str, list[float]] = {
-                key: [] for key in metric_keys
-            }
-            # NEW: Dictionary to track configuration name and its metric value
-            matched_configs_by_metric: dict[str, list[tuple[str, float]]] = {
+            matched_raw_scores_by_metric: dict[str, list[tuple[str, float]]] = {
                 key: [] for key in metric_keys
             }
 
             for config_name, metrics in instance_data.items():
                 if filter_exp.is_match(config_name):
                     for key in metric_keys:
-                        if key in metrics:
-                            # For the main DF: list of values for aggregation
-                            matched_values_by_metric[key].append(metrics[key])
+                        raw_scores = metrics.get(key)
 
-                            # For the detailed results: (config_name, value)
-                            matched_configs_by_metric[key].append((config_name, metrics[key]))
+                        if raw_scores:
+                            matched_raw_scores_by_metric[key].extend(
+                                [(config_name, score) for score in raw_scores]
+                            )
 
             for metric_key in metric_keys:
-                matched_values = matched_values_by_metric[metric_key]
+                raw_data = matched_raw_scores_by_metric[metric_key]
+                if raw_data:
+                    detailed_results[(file_name, filter_name, metric_key)] = raw_data
 
-                if matched_values:
-                    if aggregation_type == "max":
-                        agg_value = max(matched_values)
-                    elif aggregation_type == "min":
-                        agg_value = min(matched_values)
-                    else:
-                        agg_value = sum(matched_values) / len(matched_values)
-                else:
-                    agg_value = float("nan")
+    return detailed_results
 
-                results[(file_name, metric_key)][filter_name] = agg_value
-
-                # NEW: Store detailed results
-                if matched_configs_by_metric[metric_key]:
-                    detailed_results[(file_name, filter_name, metric_key)] = matched_configs_by_metric[metric_key]
-
-
-    df = pd.DataFrame.from_dict(results, orient="index")
-    df.index = pd.MultiIndex.from_tuples(df.index, names=["Instance", "Metric_Key"])
-    df = df.sort_index(level="Instance", axis=0)
-    df.columns.name = "Filter"
-
-    return df, detailed_results
 
 
 def get_internal_ranking(
@@ -195,7 +187,7 @@ def get_internal_ranking(
         ranking_df = pd.DataFrame(ranking_list).set_index("Configuration")
 
         # Determine the final ranking based on average rank (always ascending)
-        ranking_df["Rank"] = ranking_df["Avg. Rank"].rank(method="min").astype(int)
+        ranking_df["Rank"] = ranking_df["Avg. Rank"].rank(method="min")
         ranking_df = ranking_df.sort_values(by="Avg. Rank", ascending=True)
 
         # Reorder columns and store
@@ -204,6 +196,66 @@ def get_internal_ranking(
 
     return final_internal_rankings
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+def calculate_average_metrics(
+    all_metrics: RawLoadedMetrics,
+    filters_info: list[tuple[str, Any]],
+    metric_keys: list[str],
+) -> pd.DataFrame:
+    """
+    Calculates the average metric value per filter and instance for statistical tests (df).
+    Also returns detailed, raw config-level metric results for distribution plots (detailed_results).
+    """
+    results: dict[tuple[str, str], dict[str, float]] = defaultdict(dict)
+
+    for file_name, instance_data in all_metrics.items():
+        for filter_name, filter_exp in filters_info:
+            matched_avg_scores_by_metric: dict[str, list[float]] = {
+                key: [] for key in metric_keys
+            }
+            for config_name, metrics in instance_data.items():
+                if filter_exp.is_match(config_name):
+                    for key in metric_keys:
+                        raw_scores = metrics.get(key)
+                        if raw_scores:
+                            matched_avg_scores_by_metric[key].append(sum(raw_scores) / len(raw_scores))
+
+            for metric_key in metric_keys:
+                values_for_aggregation = matched_avg_scores_by_metric[metric_key]
+
+                if values_for_aggregation:
+                    agg_value = sum(values_for_aggregation) / len(values_for_aggregation)
+                else:
+                    agg_value = float("nan")
+
+                results[(file_name, metric_key)][filter_name] = agg_value
+
+    df = pd.DataFrame.from_dict(results, orient="index")
+    df.index = pd.MultiIndex.from_tuples(df.index, names=["Instance", "Metric_Key"])
+    df = df.sort_index(level="Instance", axis=0)
+    df.columns.name = "Filter"
+
+    return df
 
 def perform_nemenyi_test_on_metrics(
     avg_df: pd.DataFrame, metric_names: list[str], alpha: float = 0.05
@@ -339,12 +391,15 @@ def plot_combined_results(
     # Restructure detailed_results into a DataFrame for easy grouping
     plot_data_list = []
     for (file_name, filter_name, metric_key), config_data in detailed_results.items():
-        for _, metric_value in config_data:
+        # config_data is a list of (config_name, raw_score)
+        for config_name, metric_value in config_data:
             plot_data_list.append({
                 "Filter_Group": filter_name,
                 "Metric_Key": metric_key,
                 "Metric_Value": metric_value,
+                "Configuration": file_name,
             })
+
 
     if not plot_data_list:
         click.echo("Error: No data found to plot.", err=True)
@@ -353,14 +408,14 @@ def plot_combined_results(
     full_df = pd.DataFrame(plot_data_list)
 
     # Get all unique filter groups (X-axis labels)
-    filter_groups = sorted(full_df["Filter_Group"].unique().tolist())
+    filter_groups = full_df["Filter_Group"].unique().tolist()
     num_filters = len(filter_groups)
 
     # Use a 2-row, N-column grid (N = number of metrics)
     fig, axes = plt.subplots(
-        2,
+        3,
         num_metrics,
-        figsize=(4 * num_metrics, 8), # Adjust figure size dynamically
+        figsize=(4 * num_metrics, 12), # Adjust figure size dynamically
         squeeze=False,
     )
 
@@ -409,7 +464,7 @@ def plot_combined_results(
             ax_nemenyi.spines['left'].set_visible(False)
 
 
-        # --- BOTTOM ROW: BOX PLOT ---
+        # --- MIDDLE ROW: BOX PLOT ---
         ax_box = axes[1, i]
 
         metric_df = full_df[full_df["Metric_Key"] == metric_key].copy()
@@ -429,14 +484,39 @@ def plot_combined_results(
             flierprops={'marker': 'o', 'markersize': 4, 'markerfacecolor': 'red', 'alpha': 0.5}
         )
 
-        colors = plt.cm.Set2.colors[:num_filters]
+        colors = plt.cm.Set2.colors[:num_filters] # type: ignore
         for patch, color in zip(box_plot['boxes'], colors):
             patch.set_facecolor(color)
 
         ax_box.set_title(f"Distribution ({metric_name})", fontsize=8)
-        ax_box.tick_params(axis='x', rotation=45)
+        ax_box.tick_params(axis='x', rotation=90)
 
         ax_box.grid(axis='y', linestyle='--', alpha=0.7)
+
+        # --- BOTTOM ROW: STRIP PLOT ---
+        ax_strip = axes[2, i]
+        metric_name = metric_mapping.get(metric_key, metric_key)
+        metric_short = METRIC_MAPPING_SHORT.get(metric_name, metric_name)
+
+        # Filter data for the current metric
+        metric_df = full_df[full_df["Metric_Key"] == metric_key].copy()
+        sns.stripplot(
+            data=metric_df,
+            x="Filter_Group",
+            y="Metric_Value",
+            order=filter_groups,
+            hue="Configuration",
+            legend=False,
+            jitter=0.2,
+            alpha=0.4,
+            size=3,
+            ax=ax_strip,
+        )
+
+        ax_strip.set_title(f"Raw Scores ({metric_short})", fontsize=10)
+        ax_strip.set_ylabel(metric_name)
+        ax_strip.tick_params(axis='x', rotation=90)
+        ax_strip.grid(axis='y', linestyle='--', alpha=0.5)
 
 
     # 3. Finalize and Save Figure
@@ -501,14 +581,6 @@ def plot_combined_results(
     show_default=True,
     help="Significance level (alpha) for statistical tests.",
 )
-@click.option(
-    "--agg",
-    "aggregate_func",
-    type=click.Choice(["min", "max", "mean"]),
-    default="mean",
-    show_default=True,
-    help="Function by which we will group metric results per filter group.",
-)
 def compare_metrics(
     input_pattern: list[str],
     filters: list[FilterExpression],
@@ -516,7 +588,6 @@ def compare_metrics(
     output_file: Path | None,
     plot_file: Path | None,
     alpha: float,
-    aggregate_func: AggregationMode,
 ):
     """
     Main function to load, filter, average, and display cross-instance metrics.
@@ -568,9 +639,8 @@ def compare_metrics(
         return
 
     try:
-        avg_df, detailed_results = calculate_aggregated_metrics(
-            all_metrics, filter_objects, METRIC_KEYS, aggregate_func
-        )
+        avg_df = calculate_average_metrics(all_metrics, filter_objects, METRIC_KEYS)
+        detailed_results = group_raw_metrics(all_metrics, filter_objects, METRIC_KEYS)
 
         new_index = avg_df.index.to_frame(index=False)
         new_index["Metric_Key"] = new_index["Metric_Key"].map(METRIC_MAPPING)
@@ -602,9 +672,10 @@ def compare_metrics(
             click.echo("  Status: NO SIGNIFICANT DIFFERENCE (H0 Not Rejected).")
 
     ranking_data = display_and_get_ranking(statistical_results)
+
     internal_rankings = get_internal_ranking(detailed_results)
     for (filter_name, metric_key), ranking_df in internal_rankings.items():
-        click.echo(f"\nFilter: {filter_name}, Metric: {metric_key}")
+        click.echo(f"\nInternal Rank (Filter: {filter_name}, Metric: {metric_key})")
         print(ranking_df.to_string(float_format="%.3f"))
 
     if output_file:
@@ -621,10 +692,12 @@ def compare_metrics(
                                 writer, sheet_name=sheet_name
                             )
 
-                        # Save Ranking
                         ranking_data[metric].to_excel(
                             writer, sheet_name=f"Ranking {metric_name}"
                         )
+
+                    for (filter_name, metric_key), ranking_df in internal_rankings.items():
+                        ranking_df.to_excel(writer, sheet_name=f"Internal Rank ({filter_name}_{metric_key})")
 
                 click.echo(
                     f"Results successfully saved to Excel (Metrics, Nemenyi, and Ranking): {output_file}"
@@ -646,7 +719,6 @@ def compare_metrics(
             plot_file,
             METRIC_MAPPING,
         )
-
 
 if __name__ == "__main__":
     compare_metrics()
