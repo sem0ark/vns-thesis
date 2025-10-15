@@ -87,7 +87,7 @@ def test_moscp_solution_infeasible(moscp_example_problem: MOSCPProblem):
     selection = [1, 0, 0, 0]
     sol_data = np.array(selection).astype(bool)
 
-    expected_objectives = (10.0 + 1000000, 1.0 + 1000000)
+    expected_objectives = (1000000 - 10.0, 1000000 - 1.0)
 
     solution = _MOSCPSolution(sol_data, moscp_example_problem)
 

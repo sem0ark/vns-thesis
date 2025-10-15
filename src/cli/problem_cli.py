@@ -1,6 +1,7 @@
 import glob
 import json
 import logging
+import random
 import shutil
 from collections import defaultdict
 from copy import deepcopy
@@ -345,7 +346,16 @@ class CLI:
                 is_valid = False
                 break
 
-            solution = problem_instance.load_solution(saved_solution.data)
+            try:
+                solution = problem_instance.load_solution(saved_solution.data)
+            except ValueError as e:
+                click.echo(
+                    f"Validation FAILED: Solution #{i} in {file_path.name} is incorrect. {e}"
+                )
+                is_valid = False
+                break
+
+
             if not problem_instance.satisfies_constraints(solution.data):
                 click.echo(
                     f"Validation FAILED: Solution #{i} in {file_path.name} is INFEASIBLE."
@@ -515,11 +525,12 @@ class CLI:
 
                 results = runner(configuration)
                 timestamp = results.metadata.date
+                random_hash = random.randint(1, 10000)
 
                 destination_path = (
                     self.storage_folder
                     / f"{self.problem_name}_{instance_name} {variant_name} "
-                    f"{timestamp.split('.')[0].replace(':', '-')}.json"
+                    f"{timestamp.split('.')[0].replace(':', '-')}_{random_hash}.json"
                 )
                 results.metadata.file_path = destination_path
 
@@ -586,7 +597,7 @@ class CLI:
             instance_name = instance_path.stem
 
             click.echo(
-                f"Displaying metrics for problem: {self.problem_name} on instance: {instance_name}"
+                f"Calculating metrics for problem: {self.problem_name} on instance: {instance_name}"
             )
 
             all_runs = _load_runs(self.storage_folder, self.problem_name, instance_name)
@@ -596,7 +607,6 @@ class CLI:
                 click.echo(f"No runs matched the filters '{filter_expression}'.")
                 continue
 
-            click.echo("Displaying raw metrics...")
             display_metrics(
                 instance_path,
                 all_runs,
@@ -701,9 +711,8 @@ class CLI:
         @common_options
         @click.option(
             "--metrics-type",
-            type=click.Choice(["unary", "coverage"]),
-            default="unary",
-            show_default=True,
+            type=click.Choice(["unary", "coverage", ""]),
+            default="",
             help="--unary displays a table of independent performance metrics for each configuration, while --coverage displays a table of 1-1 coverage comparisons.",
         )
         @click.option(

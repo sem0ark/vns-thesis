@@ -131,7 +131,7 @@ class MOSCPProblem(Problem[np.ndarray]):
         result = np.sum(solution_data * self.costs, axis=1)
         if not self.satisfies_constraints(solution_data):
             # Drastically increase costs in case of infeasible solution.
-            result += 1000000
+            result = 1000000 - result
 
         return tuple(result.tolist())
 
@@ -142,6 +142,11 @@ class MOSCPProblem(Problem[np.ndarray]):
     def calculate_solution_distance(sol1: MOSCPSolution, sol2: MOSCPSolution) -> float:
         """Calculates the Hamming distance (difference in selected sets) between two MO-SCP solutions."""
         return float(np.sum(sol1.data != sol2.data)) / sol1.data.size
+
+    @staticmethod
+    def calculate_solution_distance_2(sol1: MOSCPSolution, sol2: MOSCPSolution) -> float:
+        """Calculates a distance between two MOKP solutions in [0, 1]."""
+        return float(np.sum(sol1.data != sol2.data) / np.sum(sol1.data | sol2.data))
 
     @staticmethod
     def load(filename: str) -> "MOSCPProblem":

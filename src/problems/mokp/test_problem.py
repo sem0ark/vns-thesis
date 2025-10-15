@@ -155,3 +155,25 @@ def test_calculate_solution_distance(example_problem_1d: MOKPProblem):
 
     # All differences: 5/5 = 1.0
     assert MOKPProblem.calculate_solution_distance(sol1, sol3) == pytest.approx(5 / N)
+
+
+def test_calculate_solution_distance_2(example_problem_1d: MOKPProblem):
+    problem = example_problem_1d
+
+    sol1_data = np.array([1, 1, 0, 0, 0], dtype=int)
+    sol2_data = np.array([0, 1, 0, 0, 0], dtype=int)  # 1 difference (item 0)
+    sol3_data = np.array([0, 0, 1, 1, 1], dtype=int)  # 5 differences
+
+    sol1 = _MOKPSolution(sol1_data, problem)
+    sol2 = _MOKPSolution(sol2_data, problem)
+    sol3 = _MOKPSolution(sol3_data, problem)
+
+    # Identical solutions: 0 differences
+    assert MOKPProblem.calculate_solution_distance_2(sol1, sol1) == pytest.approx(0.0)
+
+    # One difference: 1/5 = 0.2
+    assert MOKPProblem.calculate_solution_distance_2(sol1, sol2) == pytest.approx(1 / 2)
+    assert MOKPProblem.calculate_solution_distance_2(sol2, sol1) == pytest.approx(1 / 2)
+
+    # All differences: 5/5 = 1.0
+    assert MOKPProblem.calculate_solution_distance_2(sol1, sol3) == pytest.approx(1.0)

@@ -1,3 +1,4 @@
+from functools import lru_cache
 import random
 from enum import Enum
 from typing import Callable
@@ -63,6 +64,81 @@ def make_skewed_comparator(
     ) -> ComparisonResult:
         """Custom comparison: check if new_solution with skewed objectives dominates current_solution."""
         distance = distance_metric(new_solution, current_solution)
+        skewed_objectives = tuple(
+            obj_i - alpha[i] * distance
+            for i, obj_i in enumerate(new_solution.objectives)
+        )
+        return is_dominating_min(skewed_objectives, current_solution.objectives)
+
+    return compare_solutions_better_skewed
+
+
+def make_skewed_comparator_v2(
+    alpha: list[float], distance_metric: Callable[[Solution, Solution], float]
+):
+    def compare_solutions_better_skewed(
+        new_solution: Solution, current_solution: Solution
+    ) -> ComparisonResult:
+        """Custom comparison: check if new_solution with skewed objectives dominates current_solution."""
+        standard_result = is_dominating_min(new_solution.objectives, current_solution.objectives)
+        if standard_result != ComparisonResult.WORSE:
+            return standard_result
+
+        distance = distance_metric(new_solution, current_solution)
+        skewed_objectives = tuple(
+            obj_i - alpha[i] * distance
+            for i, obj_i in enumerate(new_solution.objectives)
+        )
+        skewed_result = is_dominating_min(skewed_objectives, current_solution.objectives)
+        if skewed_result != ComparisonResult.WORSE:
+            return ComparisonResult.NON_DOMINATED
+
+        return ComparisonResult.WORSE
+
+    return compare_solutions_better_skewed
+
+
+def make_skewed_comparator_v3(
+    alpha: list[float], distance_metric: Callable[[Solution, Solution], float], criterion: AcceptanceCriterion,
+):
+    @lru_cache(maxsize=256)
+    def calculate_average_distance(new_solution: Solution):
+        all_solutions = criterion.get_all_solutions()
+        if not all_solutions:
+            return 1.0
+
+        return sum([distance_metric(new_solution, sol) for sol in all_solutions]) / len(all_solutions)
+
+    def compare_solutions_better_skewed(
+        new_solution: Solution, current_solution: Solution
+    ) -> ComparisonResult:
+        """Custom comparison: check if new_solution with skewed objectives dominates current_solution."""
+        distance = calculate_average_distance(new_solution)
+        skewed_objectives = tuple(
+            obj_i - alpha[i] * distance
+            for i, obj_i in enumerate(new_solution.objectives)
+        )
+        return is_dominating_min(skewed_objectives, current_solution.objectives)
+
+    return compare_solutions_better_skewed
+
+
+def make_skewed_comparator_v4(
+    alpha: list[float], distance_metric: Callable[[Solution, Solution], float], criterion: AcceptanceCriterion,
+):
+    @lru_cache(maxsize=256)
+    def calculate_average_distance(new_solution: Solution):
+        all_solutions = criterion.get_all_solutions()
+        if not all_solutions:
+            return 1.0
+
+        return min([distance_metric(new_solution, sol) for sol in all_solutions])
+
+    def compare_solutions_better_skewed(
+        new_solution: Solution, current_solution: Solution
+    ) -> ComparisonResult:
+        """Custom comparison: check if new_solution with skewed objectives dominates current_solution."""
+        distance = calculate_average_distance(new_solution)
         skewed_objectives = tuple(
             obj_i - alpha[i] * distance
             for i, obj_i in enumerate(new_solution.objectives)
@@ -221,6 +297,9 @@ class AcceptBeamWrapped(AcceptanceCriterion):
         self.true_front = ParetoFront()
         self.custom_front = ParetoFront(comparison_function=comparison_function)
 
+    def set_comparison_function(self, comparison_function: Callable[[Solution, Solution], ComparisonResult]):
+        self.custom_front.compare_solutions = comparison_function
+
     def accept(self, candidate: Solution) -> bool:
         self.true_front.accept(candidate)
         return self.custom_front.accept(candidate)
@@ -271,6 +350,9 @@ class AcceptBatchWrapped(AcceptanceCriterion):
         self.custom_front = ParetoFront(comparison_function=comparison_function)
         # Holds the solutions to be iterated over in the current batch
         self.front_snapshot: list[Solution] = []
+
+    def set_comparison_function(self, comparison_function: Callable[[Solution, Solution], ComparisonResult]):
+        self.custom_front.compare_solutions = comparison_function
 
     def accept(self, candidate: Solution) -> bool:
         self.true_front.accept(candidate)
@@ -326,6 +408,7 @@ class AcceptBeamSkewed(AcceptBeamWrapped):
         self,
         alpha: list[float],
         distance_metric: Callable[[Solution, Solution], float],
+        include_more = False
     ):
         """Init.
 
@@ -335,7 +418,7 @@ class AcceptBeamSkewed(AcceptBeamWrapped):
             distance_metric ((Solution, Solution) -> float): Gives the difference
                 distance between two solutions in the solution space.
         """
-        super().__init__(make_skewed_comparator(alpha, distance_metric))
+        super().__init__(make_skewed_comparator(alpha, distance_metric) if not include_more else make_skewed_comparator_v2(alpha, distance_metric))
 
 
 class AcceptBatchSkewed(AcceptBatchWrapped):
@@ -365,6 +448,7 @@ class AcceptBatchSkewed(AcceptBatchWrapped):
         self,
         alpha: list[float],
         distance_metric: Callable[[Solution, Solution], float],
+        include_more = False
     ):
         """Init.
 
@@ -374,4 +458,4 @@ class AcceptBatchSkewed(AcceptBatchWrapped):
             distance_metric ((Solution, Solution) -> float): Gives the difference
                 distance between two solutions in the solution space.
         """
-        super().__init__(make_skewed_comparator(alpha, distance_metric))
+        super().__init__(make_skewed_comparator(alpha, distance_metric) if not include_more else make_skewed_comparator_v2(alpha, distance_metric))

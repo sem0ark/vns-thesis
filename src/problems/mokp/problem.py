@@ -25,6 +25,10 @@ class _MOKPSolution(Solution[np.ndarray]):
             raise ValueError(
                 "Expected saved_solution_data to be list of ints (0 or 1)!"
             )
+        if len(serialized_data) != problem.num_variables:
+            raise ValueError(
+                f"Expected array of size {problem.num_variables}!"
+            )
         solution_data = np.array(serialized_data)
         return _MOKPSolution(
             solution_data, problem, problem.calculate_objectives(solution_data)
@@ -92,6 +96,11 @@ class MOKPProblem(Problem[np.ndarray]):
     def calculate_solution_distance(sol1: MOKPSolution, sol2: MOKPSolution) -> float:
         """Calculates a distance between two MOKP solutions in [0, 1]."""
         return float(np.sum(sol1.data != sol2.data)) / sol2.data.size
+
+    @staticmethod
+    def calculate_solution_distance_2(sol1: MOKPSolution, sol2: MOKPSolution) -> float:
+        """Calculates a distance between two MOKP solutions in [0, 1]."""
+        return float(np.sum(sol1.data != sol2.data) / np.sum(sol1.data | sol2.data))
 
     @staticmethod
     def load(filename: str) -> "MOKPProblem":
