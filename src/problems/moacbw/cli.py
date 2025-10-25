@@ -14,6 +14,7 @@ from pymoo.util.nds.non_dominated_sorting import NonDominatedSorting
 from src.cli.problem_cli import CLI, InstanceRunner, RunConfig
 from src.cli.shared import Metadata, SavedRun, SavedSolution
 from src.core.abstract import OptimizerAbstract
+from src.core.termination import terminate_time_based
 from src.problems.moacbw.problem import MOACBWProblem, MOACBWProblemPymoo
 from src.problems.moacbw.vns import shake_swap, swap_limited_op, swap_op
 from src.problems.vns_runner_utils import run_vns_optimizer
@@ -21,7 +22,6 @@ from src.vns.acceptance import AcceptBatch, AcceptBatchSkewed
 from src.vns.local_search import (
     best_improvement,
     first_improvement,
-    first_improvement_quick,
     noop,
 )
 from src.vns.optimizer import VNSOptimizer
@@ -54,7 +54,6 @@ class VNSInstanceRunner(InstanceRunner):
                     [
                         ("BI", best_improvement),
                         ("FI", first_improvement),
-                        ("QI", first_improvement_quick),
                     ],
                     [("op_swap", swap_op), ("op_short_swap", swap_limited_op)],
                 )
@@ -98,8 +97,7 @@ class VNSInstanceRunner(InstanceRunner):
     def make_func(self, optimizer: OptimizerAbstract):
         def run(config: RunConfig):
             solutions = run_vns_optimizer(
-                config.run_time_seconds,
-                optimizer,
+                optimizer, terminate_time_based(config.run_time_seconds)
             )
 
             return SavedRun(

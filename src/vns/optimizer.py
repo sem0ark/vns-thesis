@@ -52,5 +52,6 @@ class VNSOptimizer[T](OptimizerAbstract[T]):
     def reset(self) -> None:
         self.acceptance_criterion.clear()
 
+    def initialize(self) -> None:
         for sol in self.problem.get_initial_solutions():
             self.acceptance_criterion.accept(sol)

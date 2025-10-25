@@ -175,15 +175,21 @@ class OptimizerAbstract[T]:
         self.problem = problem
         self.acceptance_criterion = acceptance_criterion
 
+    def initialize(self) -> None:
+        """
+        Initializes optimization with default problem's solutions.
+        """
+        raise NotImplementedError()
+
     def reset(self) -> None:
         """
-        Initializes VNS optimization process and clear internal state.
+        Resets optimization process and clears internal state.
         """
         raise NotImplementedError()
 
     def optimize(self) -> Iterable[bool | None]:
         """
-        Runs the VNS optimization process. Yielding None in this case, allows to improve CLi experience to allow interruption in the middle of actual iteration.
+        Runs the optimization process. Yielding None in this case, allows to improve CLi experience to allow interruption in the middle of actual iteration.
         """
         raise NotImplementedError()
 

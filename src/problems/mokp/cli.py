@@ -13,6 +13,7 @@ from pymoo.termination.max_time import TimeBasedTermination
 from src.cli.problem_cli import CLI, InstanceRunner, RunConfig
 from src.cli.shared import Metadata, SavedRun, SavedSolution
 from src.core.abstract import OptimizerAbstract
+from src.core.termination import terminate_time_based
 from src.problems.mokp.problem import MOKPProblem, MOKPPymoo
 from src.problems.mokp.vns import (
     flip_op,
@@ -21,7 +22,14 @@ from src.problems.mokp.vns import (
     swap_op,
 )
 from src.problems.vns_runner_utils import run_vns_optimizer
-from src.vns.acceptance import AcceptBatch, AcceptBatchWrapped, make_skewed_comparator, make_skewed_comparator_v2, make_skewed_comparator_v3, make_skewed_comparator_v4
+from src.vns.acceptance import (
+    AcceptBatch,
+    AcceptBatchWrapped,
+    make_skewed_comparator,
+    make_skewed_comparator_v2,
+    make_skewed_comparator_v3,
+    make_skewed_comparator_v4,
+)
 from src.vns.local_search import (
     best_improvement,
     noop,
@@ -51,49 +59,74 @@ class VNSInstanceRunner(InstanceRunner):
     def get_variants(self) -> Iterable[tuple[str, Callable[[RunConfig], SavedRun]]]:
         alpha_weights = np.mean(self.problem.profits, axis=1)
 
+        alpha_range = [0.25, 0.5, 1, 2, 3]
         acceptance_criteria = [
             ("batch", AcceptBatch()),
             *[
                 (
                     f"skewed a{mult}",
-                    AcceptBatchWrapped(make_skewed_comparator(alpha_weights * mult, MOKPProblem.calculate_solution_distance)),
+                    AcceptBatchWrapped(
+                        make_skewed_comparator(
+                            alpha_weights * mult,
+                            MOKPProblem.calculate_solution_distance,
+                        )
+                    ),
                 )
-                for mult in range(1, 30 + 1)
+                for mult in alpha_range
             ],
             *[
                 (
                     f"skewed_v2 a{mult}",
-                    AcceptBatchWrapped(make_skewed_comparator_v2(alpha_weights * mult, MOKPProblem.calculate_solution_distance)),
+                    AcceptBatchWrapped(
+                        make_skewed_comparator_v2(
+                            alpha_weights * mult,
+                            MOKPProblem.calculate_solution_distance,
+                        )
+                    ),
                 )
-                for mult in range(1, 30 + 1)
+                for mult in alpha_range
             ],
             *[
                 (
                     f"skewed_v3 a{mult}",
-                    AcceptBatchWrapped(make_skewed_comparator_v2(alpha_weights * mult, MOKPProblem.calculate_solution_distance_2)),
+                    AcceptBatchWrapped(
+                        make_skewed_comparator_v2(
+                            alpha_weights * mult,
+                            MOKPProblem.calculate_solution_distance_2,
+                        )
+                    ),
                 )
-                for mult in range(1, 30 + 1)
+                for mult in alpha_range
             ],
             *[
                 (
                     f"skewed_v4 a{mult}",
-                    AcceptBatchWrapped(make_skewed_comparator(alpha_weights * mult, MOKPProblem.calculate_solution_distance_2)),
+                    AcceptBatchWrapped(
+                        make_skewed_comparator(
+                            alpha_weights * mult,
+                            MOKPProblem.calculate_solution_distance_2,
+                        )
+                    ),
                 )
-                for mult in range(1, 30 + 1)
+                for mult in alpha_range
             ],
             *[
                 (
                     f"skewed_v5 a{mult}",
-                    make_v3(alpha_weights * mult, MOKPProblem.calculate_solution_distance_2),
+                    make_v3(
+                        alpha_weights * mult, MOKPProblem.calculate_solution_distance_2
+                    ),
                 )
-                for mult in range(1, 30 + 1)
+                for mult in alpha_range
             ],
             *[
                 (
                     f"skewed_v6 a{mult}",
-                    make_v4(alpha_weights * mult, MOKPProblem.calculate_solution_distance_2),
+                    make_v4(
+                        alpha_weights * mult, MOKPProblem.calculate_solution_distance_2
+                    ),
                 )
-                for mult in range(1, 30 + 1)
+                for mult in alpha_range
             ],
         ]
         local_search_functions = [
@@ -152,8 +185,7 @@ class VNSInstanceRunner(InstanceRunner):
     def make_func(self, optimizer: OptimizerAbstract):
         def run(config: RunConfig):
             solutions = run_vns_optimizer(
-                config.run_time_seconds,
-                optimizer,
+                optimizer, terminate_time_based(config.run_time_seconds)
             )
 
             return SavedRun(

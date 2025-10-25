@@ -355,7 +355,6 @@ class CLI:
                 is_valid = False
                 break
 
-
             if not problem_instance.satisfies_constraints(solution.data):
                 click.echo(
                     f"Validation FAILED: Solution #{i} in {file_path.name} is INFEASIBLE."
@@ -662,7 +661,9 @@ class CLI:
                     from viztracer import VizTracer
 
                     with VizTracer(min_duration=20):
-                        self._execute_run_logic(instance, max_time, filter_string, repeat_times)
+                        self._execute_run_logic(
+                            instance, max_time, filter_string, repeat_times
+                        )
                 except ImportError:
                     click.echo(
                         "Warning: to use --trace, please, install viztracer with pip install viztracer"

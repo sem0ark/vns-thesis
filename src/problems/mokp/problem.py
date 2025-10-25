@@ -26,9 +26,7 @@ class _MOKPSolution(Solution[np.ndarray]):
                 "Expected saved_solution_data to be list of ints (0 or 1)!"
             )
         if len(serialized_data) != problem.num_variables:
-            raise ValueError(
-                f"Expected array of size {problem.num_variables}!"
-            )
+            raise ValueError(f"Expected array of size {problem.num_variables}!")
         solution_data = np.array(serialized_data)
         return _MOKPSolution(
             solution_data, problem, problem.calculate_objectives(solution_data)

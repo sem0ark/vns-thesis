@@ -2,6 +2,7 @@ import logging
 import time
 
 from src.core.abstract import Solution
+from src.core.termination import TerminationCriterion
 from src.vns.optimizer import OptimizerAbstract
 
 
@@ -9,8 +10,7 @@ LOGGING_INTERVAL = 5.0
 
 
 def run_vns_optimizer(
-    run_time_seconds: float,
-    optimizer: OptimizerAbstract,
+    optimizer: OptimizerAbstract, termination_criterion: TerminationCriterion
 ) -> list[Solution]:
     """
     Runs the VNS optimizer for a specified duration and returns the final
@@ -29,21 +29,11 @@ def run_vns_optimizer(
     improved_in_cycle = False
     iteration_actual = 1
     optimizer.reset()
+    optimizer.initialize()
 
     start_time = time.time()
-    for _, improved in enumerate(optimizer.optimize(), 1):
+    for _, improved in enumerate(termination_criterion(optimizer.optimize()), 1):
         current_time = time.time()
-        elapsed_time = current_time - start_time
-
-        if elapsed_time > run_time_seconds:
-            num_solutions = len(optimizer.acceptance_criterion.get_all_solutions())
-            logger.info(
-                "Timeout after %d iterations, ran for %.2f seconds. Total # solutions: %d",
-                iteration_actual,
-                elapsed_time,
-                num_solutions,
-            )
-            break
 
         if improved is not None:
             iteration_actual += 1
@@ -56,9 +46,16 @@ def run_vns_optimizer(
             logger.info(
                 "Iteration %d %s %s",
                 iteration_actual,
-                f"({len(front)} solutions in front)" if front is not None else "",
+                f"({len(front)} solutions in front)",
                 improved_in_cycle and ": Improved!" or "",
             )
             improved_in_cycle = False
 
+    num_solutions = len(optimizer.acceptance_criterion.get_all_solutions())
+    logger.info(
+        "Ran for %.2f seconds, %d iterations. Total # solutions: %d",
+        iteration_actual,
+        time.time() - start_time,
+        num_solutions,
+    )
     return optimizer.acceptance_criterion.get_all_solutions()

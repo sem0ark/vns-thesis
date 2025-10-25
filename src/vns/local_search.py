@@ -19,7 +19,9 @@ def noop(*_args):
 
 
 def best_improvement(
-    operator: NeighborhoodOperator, objective_index: int | None = None
+    operator: NeighborhoodOperator,
+    objective_index: int | None = None,
+    max_transitions: int = -1,
 ) -> SearchFunction:
     """Go as far as possible, each time moving to the best near neighbor."""
 
@@ -32,6 +34,7 @@ def best_improvement(
 
     def search(initial: Solution) -> Iterable[Solution | None]:
         current = initial
+        transition_index = 1
 
         while True:
             improved = False
@@ -49,6 +52,10 @@ def best_improvement(
             else:
                 break
 
+            if transition_index == max_transitions:
+                break
+
+            transition_index += 1
             yield None
 
         yield current.flatten_solution()
@@ -57,7 +64,9 @@ def best_improvement(
 
 
 def first_improvement(
-    operator: NeighborhoodOperator, objective_index: int | None = None
+    operator: NeighborhoodOperator,
+    objective_index: int | None = None,
+    max_transitions: int = -1,
 ):
     """Go as far as possible, each time moving to the first better near neighbor."""
 
@@ -70,6 +79,7 @@ def first_improvement(
 
     def search(initial: Solution) -> Iterable[Solution | None]:
         current = initial
+        transition_index = 1
 
         while True:
             for neighbor in operator(current.flatten_solution()):
@@ -79,32 +89,13 @@ def first_improvement(
             else:
                 break
 
+            if transition_index == max_transitions:
+                break
+
+            transition_index += 1
             yield None
 
         yield current.flatten_solution()
-
-    return search
-
-
-def first_improvement_quick(
-    operator: NeighborhoodOperator, objective_index: int | None = None
-):
-    """Move to the first better near neighbor once."""
-
-    if objective_index is not None:
-        is_better = lambda a, b: a[objective_index] < b[objective_index]  # noqa: E731
-    else:
-        is_better = (  # noqa: E731
-            lambda a, b: is_dominating_min(a, b) == ComparisonResult.STRICTLY_BETTER
-        )
-
-    def search(initial: Solution) -> Iterable[Solution | None]:
-        for neighbor in operator(initial.flatten_solution()):
-            if is_better(neighbor.objectives, initial.objectives):
-                yield neighbor.flatten_solution()
-                return
-
-        yield initial.flatten_solution()
 
     return search
 

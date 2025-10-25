@@ -291,8 +291,7 @@ def calculate_metrics(
             # Relative missing hypervolume compared to reference front. For minimization, smaller is better.
             hypervolume_indicator = HV(ref_point=hypervolume_reference_point)
             relative_hypervolume = (
-                reference_front_hypervolume
-                - (hypervolume_indicator.do(front) or 0.0)
+                reference_front_hypervolume - (hypervolume_indicator.do(front) or 0.0)
             ) / reference_front_hypervolume
 
             # Multiplicative Epsilon. For minimization, smaller is better.
@@ -341,7 +340,9 @@ def export_unary_metrics(
     all_runs_grouped: dict[str, list[SavedRun]],
     filtered_runs_grouped: dict[str, list[SavedRun]],
 ):
-    _, metrics_all = calculate_metrics(instance_path, all_runs_grouped, filtered_runs_grouped)
+    _, metrics_all = calculate_metrics(
+        instance_path, all_runs_grouped, filtered_runs_grouped
+    )
 
     metrics_for_export = {}
 
@@ -349,7 +350,7 @@ def export_unary_metrics(
         run_output = defaultdict(list)
         for metrics_obj in metric_list:
             for key, value in asdict(metrics_obj).items():
-                run_output[key].append(float(value)) 
+                run_output[key].append(float(value))
 
         metrics_for_export[run_name] = run_output
 
@@ -476,7 +477,9 @@ def prepare_unary_metrics_table_data(
     Calculates metrics and prepares the unary metrics table data.
     Returns (metrics, (headers, table_data)).
     """
-    metrics, _ = calculate_metrics(instance_path, all_runs_grouped, filtered_runs_grouped)
+    metrics, _ = calculate_metrics(
+        instance_path, all_runs_grouped, filtered_runs_grouped
+    )
     # Sort the metrics. Lower values are better for all of them.
     sorted_metrics = sorted(
         metrics.items(),

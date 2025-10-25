@@ -76,9 +76,9 @@ class MOSCPProblem(Problem[np.ndarray]):
 
             while uncovered_items:
                 item_index = random.choice(list(uncovered_items))
-                possible_sets_indices = np.where(self.coverage_unpacked[item_index] == 1)[
-                    0
-                ]
+                possible_sets_indices = np.where(
+                    self.coverage_unpacked[item_index] == 1
+                )[0]
 
                 if not possible_sets_indices.size:
                     raise RuntimeError(
@@ -144,7 +144,9 @@ class MOSCPProblem(Problem[np.ndarray]):
         return float(np.sum(sol1.data != sol2.data)) / sol1.data.size
 
     @staticmethod
-    def calculate_solution_distance_2(sol1: MOSCPSolution, sol2: MOSCPSolution) -> float:
+    def calculate_solution_distance_2(
+        sol1: MOSCPSolution, sol2: MOSCPSolution
+    ) -> float:
         """Calculates a distance between two MOKP solutions in [0, 1]."""
         return float(np.sum(sol1.data != sol2.data) / np.sum(sol1.data | sol2.data))
 
