@@ -18,13 +18,22 @@ from src.core.termination import terminate_time_based
 from src.problems.moacbw.problem import MOACBWProblem, MOACBWProblemPymoo
 from src.problems.moacbw.vns import shake_swap, swap_limited_op, swap_op
 from src.problems.vns_runner_utils import run_vns_optimizer
-from src.vns.acceptance import AcceptBatch, AcceptBatchSkewed
+from src.vns.acceptance import AcceptBatch
 from src.vns.local_search import (
     best_improvement,
     first_improvement,
     noop,
 )
 from src.vns.optimizer import VNSOptimizer
+from src.vns_extensions.skewed_vns import (
+    AcceptBatchSkewedV1,
+    AcceptBatchSkewedV2,
+    AcceptBatchSkewedV3,
+    AcceptBatchSkewedV4,
+)
+from src.vns_extensions.variable_formulation_vns import (
+    AcceptBatchVFS,
+)
 
 
 class VNSInstanceRunner(InstanceRunner):
@@ -36,11 +45,38 @@ class VNSInstanceRunner(InstanceRunner):
         acceptance_criteria = [
             ("batch", AcceptBatch()),
             (
-                "skewed",
-                AcceptBatchSkewed(
+                "skewed_v1 a5",
+                AcceptBatchSkewedV1(
                     [5.0, 5.0], MOACBWProblem.calculate_solution_distance
                 ),
             ),
+            (
+                "skewed_v2 a5",
+                AcceptBatchSkewedV2(
+                    [5.0, 5.0], MOACBWProblem.calculate_solution_distance
+                ),
+            ),
+            (
+                "skewed_v3 a5",
+                AcceptBatchSkewedV3(
+                    [5.0, 5.0], MOACBWProblem.calculate_solution_distance
+                ),
+            ),
+            (
+                "skewed_v4 a5",
+                AcceptBatchSkewedV4(
+                    [5.0, 5.0], MOACBWProblem.calculate_solution_distance
+                ),
+            ),
+            (
+                "vfs",
+                AcceptBatchVFS(
+                    [
+                        MOACBWProblem.calculate_objectives_2,
+                        MOACBWProblem.calculate_objectives_3,
+                    ]
+                ),
+            ),  # type: ignore
         ]
 
         local_search_functions = [
@@ -78,6 +114,8 @@ class VNSInstanceRunner(InstanceRunner):
                 common_name = "RVNS"
             elif "skewed" in acc_name:
                 common_name = "SVNS"
+            elif "vfs" in acc_name:
+                common_name = "VFS"
 
             config_name = (
                 f"vns {common_name} {acc_name} {search_name} k{k} {shake_name}"

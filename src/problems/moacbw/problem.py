@@ -6,8 +6,16 @@ import xxhash
 from pymoo.core.problem import ElementwiseProblem
 
 from src.core.abstract import Problem, Solution
+from src.problems.utils import lru_cache_custom_hash_key
 
 type MOACBWSolution = Solution[np.ndarray]
+
+
+def get_hash(*args):
+    data: np.ndarray = args[-1]
+    h = xxhash.xxh64()
+    h.update(data.tobytes())
+    return h.intdigest()
 
 
 class _MOACBWSolution(Solution[np.ndarray]):
@@ -18,9 +26,7 @@ class _MOACBWSolution(Solution[np.ndarray]):
     """
 
     def get_hash(self) -> int:
-        h = xxhash.xxh64()
-        h.update(self.data.tobytes())
-        return h.intdigest()
+        return get_hash(self.data)
 
     def to_json_serializable(self) -> Any:
         return self.data.tolist()
@@ -81,85 +87,58 @@ class MOACBWProblem(Problem[np.ndarray]):
             solutions.append(_MOACBWSolution(solution_data, self))
         return solutions
 
-    def get_antibandwidth(self, solution_data: np.ndarray) -> int:
-        """
-        Antibandwidth = min_{v in V} { min_{(u,v) in E} { |pi(u) - pi(v)| } }
-        """
-        positions = np.zeros(solution_data.size, dtype=int)
-        for pos, v in enumerate(solution_data):
-            positions[v] = pos
+    @lru_cache_custom_hash_key(maxsize=500, key_func=get_hash)
+    def get_antibandwidth_values(self, solution_data: np.ndarray) -> list[int]:
+        n = self.num_nodes
+        positions = np.empty(n, dtype=int)
+        positions[solution_data] = np.arange(n)
 
-        antibandwidth_values = []
+        antibandwidth_values = [0] * n
 
-        for current in range(self.num_nodes):
-            neighbors = self.adj_list.get(current, [])
-
+        for node in range(n):
+            neighbors = self.adj_list[node]
             if not neighbors:
                 continue
 
-            current_position = positions[current]
+            node_pos = positions[node]
+            neighbor_positions = positions[neighbors]
 
             # AB(pi, u) = min_{v in N(u)} { |pi(u) - pi(v)| }
-            neighbor_positions = positions[neighbors]
-            antibandwidth_values.append(
-                np.min(np.abs(current_position - neighbor_positions))
-            )
+            # Vectorized calculation with early termination check
+            distances = np.abs(node_pos - neighbor_positions)
+            min_dist = np.min(distances)
 
-        return min(antibandwidth_values) + sum(antibandwidth_values) / self.num_nodes**2
+            antibandwidth_values[positions[node]] = int(min_dist)
 
-    def get_cutwidth(self, solution_data: np.ndarray) -> int:
-        # We can calculate it using a more optimized version of:
-        # for i in [0, N-1] Compute max of:
-        #    cut_edges = 0
-        #    set_left = set(ordering[:i+1])
-        #    set_right = set(ordering[i+1:])
-        #    for u in set_left:
-        #        for neighbor in graph[u]: # Assuming adjacency list
-        #            if neighbor in set_right:
-        #                cut_edges += 1
+        return antibandwidth_values
 
-        permutation = solution_data
-        positions = np.zeros(solution_data.size, dtype=int)
-        for pos, v in enumerate(solution_data):
-            positions[v] = pos
+    @lru_cache_custom_hash_key(maxsize=500, key_func=get_hash)
+    def get_cutwidth_values(self, solution_data: np.ndarray) -> list[int]:
+        n = self.num_nodes
+        positions = np.empty(n, dtype=int)
+        positions[solution_data] = np.arange(n)
 
-        current_cut = 0  # Represents the cut size C(k)
-        cuts = []
+        diff = [0] * (n + 1)
+        for u in range(n):
+            u_pos = positions[u]
+            for v in self.adj_list[u]:
+                if u >= v:
+                    continue
 
-        # We iterate over the N-1 cuts. k is the position index (0 to N-2).
-        # The vertex v = permutation[k] moves from the right set (R) to the left set (L),
-        # defining the cut C(k+1).
-        for cut_position in range(self.num_nodes - 1):
-            current = permutation[cut_position]  # Vertex with position k+1 is moving.
+                v_pos = positions[v]
+                left_pos = min(u_pos, v_pos)
+                right_pos = max(u_pos, v_pos)
 
-            # Change in "cut size" when V moves from R to L
-            delta_cut = 0
+                diff[left_pos] += 1
+                diff[right_pos] -= 1
 
-            for w in self.adj_list.get(current, []):
-                position_w = positions[w]
+        cuts = [0] * (n - 1)
+        current = 0
+        for i in range(n - 1):
+            current += diff[i]
+            cuts[i] = current
 
-                # Check neighbor's position relative to the old left set (position <= k)
-                if position_w <= (cut_position + 1):
-                    # w is in the new L (position 1 to k+1).
-                    # If position_w <= k: Edge (v, w) stops crossing (R->L to L->L). Delta -1.
-                    if position_w <= cut_position:
-                        delta_cut -= 1
-                    else:
-                        pass
-
-                # Check neighbor's position relative to the new right set (position > k+1)
-                elif position_w > (cut_position + 1):
-                    # Case 2: w is still in the new R (position k+2 to N).
-                    # Edge (v, w) starts crossing (R->R to L->R). Delta +1.
-                    delta_cut += 1
-
-            # Update the cut size for C(k+1)
-            current_cut += delta_cut
-
-            # C(1) to C(N-1) are the relevant cuts
-            cuts.append(current_cut)
-
-        return max(cuts) + sum(cuts) / self.num_nodes**2
+        return cuts
 
     def calculate_objectives(self, solution_data: np.ndarray) -> Tuple[float, float]:
         """
@@ -169,12 +148,26 @@ class MOACBWProblem(Problem[np.ndarray]):
             return 0.0, 0.0
 
         # Maximize z1 = min_{v in V} { min_{(u,v) in E} { |pi(u) - pi(v)| } }
-        z1 = -float(self.get_antibandwidth(solution_data))
+        z1 = -float(min(self.get_antibandwidth_values(solution_data)))
 
         # Minimize z2 = max_{k=1}^{n-1} C(k)
         # C(k): cut size after the vertex with position k (i.e., between k and k+1)
-        z2 = float(self.get_cutwidth(solution_data))
+        z2 = float(max(self.get_cutwidth_values(solution_data)))
 
+        return z1, z2
+
+    def calculate_objectives_2(self, solution_data: np.ndarray) -> Tuple[float, float]:
+        if self.num_nodes == 0:
+            return 0.0, 0.0
+        z1 = -float(max(self.get_antibandwidth_values(solution_data)))
+        z2 = float(min(self.get_cutwidth_values(solution_data)))
+        return z1, z2
+
+    def calculate_objectives_3(self, solution_data: np.ndarray) -> Tuple[float, float]:
+        if self.num_nodes == 0:
+            return 0.0, 0.0
+        z1 = -float(sum(self.get_antibandwidth_values(solution_data)))
+        z2 = float(sum(self.get_cutwidth_values(solution_data)))
         return z1, z2
 
     def satisfies_constraints(self, solution_data: np.ndarray) -> bool:
