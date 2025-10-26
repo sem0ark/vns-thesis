@@ -26,7 +26,7 @@ class _MOACBWSolution(Solution[np.ndarray]):
     """
 
     def get_hash(self) -> int:
-        return get_hash(self.data)
+        return hash(self.objectives)
 
     def to_json_serializable(self) -> Any:
         return self.data.tolist()
@@ -76,10 +76,11 @@ class MOACBWProblem(Problem[np.ndarray]):
                 self.adj_list[i] = []
 
     def get_initial_solutions(
-        self, num_solutions: int = 50
+        self, num_solutions: int = 1000
     ) -> Iterable[MOACBWSolution]:
         """Generates a specified number of random permutations (layouts)."""
         solutions = []
+        solutions.append(_MOACBWSolution(np.arange(self.num_nodes, dtype=int), self))
         for _ in range(num_solutions):
             # Solution is a permutation of vertex indices [0, 1, ..., N-1]
             solution_data = np.arange(self.num_nodes, dtype=int)
@@ -156,14 +157,18 @@ class MOACBWProblem(Problem[np.ndarray]):
 
         return z1, z2
 
-    def calculate_objectives_2(self, solution_data: np.ndarray) -> Tuple[float, float]:
+    def calculate_objectives_max(
+        self, solution_data: np.ndarray
+    ) -> Tuple[float, float]:
         if self.num_nodes == 0:
             return 0.0, 0.0
         z1 = -float(max(self.get_antibandwidth_values(solution_data)))
         z2 = float(min(self.get_cutwidth_values(solution_data)))
         return z1, z2
 
-    def calculate_objectives_3(self, solution_data: np.ndarray) -> Tuple[float, float]:
+    def calculate_objectives_sum(
+        self, solution_data: np.ndarray
+    ) -> Tuple[float, float]:
         if self.num_nodes == 0:
             return 0.0, 0.0
         z1 = -float(sum(self.get_antibandwidth_values(solution_data)))

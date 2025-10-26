@@ -47,36 +47,34 @@ class VNSInstanceRunner(InstanceRunner):
             (
                 "skewed_v1 a5",
                 AcceptBatchSkewedV1(
-                    [5.0, 5.0], MOACBWProblem.calculate_solution_distance
+                    [5.0, 5.0], self.problem.calculate_solution_distance
                 ),
             ),
             (
                 "skewed_v2 a5",
                 AcceptBatchSkewedV2(
-                    [5.0, 5.0], MOACBWProblem.calculate_solution_distance
+                    [5.0, 5.0], self.problem.calculate_solution_distance
                 ),
             ),
             (
                 "skewed_v3 a5",
                 AcceptBatchSkewedV3(
-                    [5.0, 5.0], MOACBWProblem.calculate_solution_distance
+                    [5.0, 5.0], self.problem.calculate_solution_distance
                 ),
             ),
             (
                 "skewed_v4 a5",
                 AcceptBatchSkewedV4(
-                    [5.0, 5.0], MOACBWProblem.calculate_solution_distance
+                    [5.0, 5.0], self.problem.calculate_solution_distance
                 ),
             ),
             (
                 "vfs",
                 AcceptBatchVFS(
-                    [
-                        MOACBWProblem.calculate_objectives_2,
-                        MOACBWProblem.calculate_objectives_3,
-                    ]
+                    self.problem.calculate_objectives_max,
+                    self.problem.calculate_objectives_sum,
                 ),
-            ),  # type: ignore
+            ),
         ]
 
         local_search_functions = [
@@ -127,7 +125,7 @@ class VNSInstanceRunner(InstanceRunner):
                 acceptance_criterion=acc_criteria,
                 shake_function=shake_func,
                 name=config_name,
-                version=17,
+                version=18,
             )
 
             yield config_name, self.make_func(optimizer)
@@ -213,7 +211,7 @@ class PymooInstanceRunner(InstanceRunner):
                 metadata=Metadata(
                     run_time_seconds=int(config.run_time_seconds),
                     name=name,
-                    version=4,
+                    version=5,
                     problem_name="moacbw",
                     instance_name=Path(config.instance_path).stem,
                 ),

@@ -126,7 +126,7 @@ class VNSInstanceRunner(InstanceRunner):
                 acceptance_criterion=acceptance_criterion,
                 shake_function=shake_func,
                 name=config_name,
-                version=17,
+                version=18,
             )
 
             yield config_name, self.make_func(optimizer)

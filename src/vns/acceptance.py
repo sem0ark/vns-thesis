@@ -121,6 +121,9 @@ class ParetoFront(AcceptanceCriterion):
         self.front.clear()
         self.comparison_cache.clear()
 
+    def _get_size(self) -> tuple[int, ...]:
+        return (len(self.front),)
+
 
 class AcceptBatch(AcceptanceCriterion):
     """
@@ -174,6 +177,9 @@ class AcceptBatch(AcceptanceCriterion):
         self.front_snapshot.clear()
         self.true_front.clear()
 
+    def _get_size(self) -> tuple[int, ...]:
+        return self.true_front._get_size()
+
 
 class AcceptBeamWrapped(AcceptanceCriterion):
     """
@@ -222,6 +228,12 @@ class AcceptBeamWrapped(AcceptanceCriterion):
     def clear(self):
         self.true_front.clear()
         self.custom_front.clear()
+
+    def _get_size(self) -> tuple[int, ...]:
+        return (
+            self.true_front._get_size()[0],
+            self.custom_front._get_size()[0],
+        )
 
 
 class AcceptBatchWrapped(AcceptanceCriterion):
@@ -290,3 +302,9 @@ class AcceptBatchWrapped(AcceptanceCriterion):
         self.true_front.clear()
         self.custom_front.clear()
         self.front_snapshot.clear()
+
+    def _get_size(self) -> tuple[int, ...]:
+        return (
+            self.true_front._get_size()[0],
+            self.custom_front._get_size()[0],
+        )

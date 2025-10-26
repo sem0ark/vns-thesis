@@ -1,4 +1,3 @@
-from functools import lru_cache
 from typing import Any, Callable
 from src.core.abstract import Solution
 from src.vns.acceptance import (
@@ -13,23 +12,18 @@ ObjectiveFunction = Callable[[Any], tuple[float, ...]]
 
 
 def make_comparator(additional_objective_functions: list[ObjectiveFunction]):
-    funcs = [lru_cache(maxsize=300)(func) for func in additional_objective_functions]
+    def get_objectives(solution: Solution):
+        obj = solution.objectives
+        for func in additional_objective_functions:
+            obj += func(solution.data)
+        return obj
 
     def compare_solutions_better_stacked(
         new_solution: Solution, current_solution: Solution
     ) -> ComparisonResult:
-        result = is_dominating_min(new_solution.objectives, current_solution.objectives)
-        if result != ComparisonResult.NON_DOMINATED:
-            return result
-
-        for func in funcs:
-            result = is_dominating_min(
-                func(new_solution.data), func(current_solution.data)
-            )
-            if result != ComparisonResult.NON_DOMINATED:
-                return result
-
-        return result
+        return is_dominating_min(
+            get_objectives(new_solution), get_objectives(current_solution)
+        )
 
     return compare_solutions_better_stacked
 
@@ -40,5 +34,5 @@ class AcceptBeamVFS(AcceptBeamWrapped):
 
 
 class AcceptBatchVFS(AcceptBatchWrapped):
-    def __init__(self, additional_objective_functions: list[ObjectiveFunction]):
-        super().__init__(make_comparator(additional_objective_functions))
+    def __init__(self, *additional_objective_functions: ObjectiveFunction):
+        super().__init__(make_comparator(list(additional_objective_functions)))
