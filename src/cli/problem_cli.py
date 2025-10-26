@@ -1,3 +1,4 @@
+from datetime import datetime
 import glob
 import json
 import logging
@@ -10,6 +11,7 @@ from pathlib import Path
 from typing import Any, Callable, Iterable, cast
 
 import click
+import numpy as np
 
 from src.cli.filter_param import ClickFilterExpression, FilterExpression
 from src.cli.metrics import display_metrics, plot_runs
@@ -478,6 +480,7 @@ class CLI:
         max_time: str,
         filter_expression: FilterExpression,
         repeat_times: int,
+        seed: int,
     ):
         """Contains the logic for running optimizations and saving results."""
         run_time_seconds = parse_time_string(max_time)
@@ -496,10 +499,13 @@ class CLI:
             + "\n".join(instance_paths)
         )
 
-        for instance_path_str in instance_paths * repeat_times:
+        for instance_path_str in instance_paths:
             configuration = RunConfig(run_time_seconds, Path(instance_path_str))
             instance_path = Path(instance_path_str)
             instance_name = instance_path.stem
+
+            click.echo("-" * 50)
+            click.echo(f"Processing instance: {configuration.instance_path}")
 
             try:
                 problem_instance = self.problem_class.load(instance_path_str)
@@ -514,31 +520,38 @@ class CLI:
                 if filter_expression.is_match(config_name)
             }
 
-            click.echo("-" * 50)
-            click.echo(f"Processing instance: {configuration.instance_path}")
-
             for variant_name, runner in problem_configs.items():
+                click.echo("-" * 50)
                 click.echo(
                     f"Running '{variant_name}' variant on '{self.problem_name}' for {configuration.run_time_seconds} seconds."
                 )
+                click.echo(f"Setting random seed to be {seed}")
 
-                results = runner(configuration)
-                timestamp = results.metadata.date
-                random_hash = random.randint(1, 10000)
+                random.seed(seed)
+                np.random.seed(seed)
 
-                destination_path = (
-                    self.storage_folder
-                    / f"{self.problem_name}_{instance_name} {variant_name} "
-                    f"{timestamp.split('.')[0].replace(':', '-')}_{random_hash}.json"
-                )
-                results.metadata.file_path = destination_path
+                for i in range(1, repeat_times + 1):
+                    click.echo(
+                        f"Running '{variant_name}' variant on '{self.problem_name}' for {configuration.run_time_seconds} seconds. Repeat {i} out of {repeat_times}."
+                    )
+                    random_hash = datetime.now().microsecond % 10000
 
-                with open(destination_path, "w") as f:
-                    json.dump(asdict(results), f, cls=NpEncoder)
+                    results = runner(configuration)
+                    timestamp = results.metadata.date
 
-                print(f"Optimization run data saved to: {destination_path}")
+                    destination_path = (
+                        self.storage_folder
+                        / f"{self.problem_name}_{instance_name} {variant_name} "
+                        f"{timestamp.split('.')[0].replace(':', '-')}_{random_hash}.json"
+                    )
+                    results.metadata.file_path = destination_path
 
-                self._validate_run(results, problem_instance)
+                    with open(destination_path, "w") as f:
+                        json.dump(asdict(results), f, cls=NpEncoder)
+
+                    click.echo(f"Optimization run data saved to: {destination_path}")
+
+                    self._validate_run(results, problem_instance)
 
     def _execute_plot_logic(
         self,
@@ -644,12 +657,19 @@ class CLI:
             required=False,
             default=1,
         )
+        @click.option(
+            "--seed",
+            type=int,
+            required=False,
+            default=random.randint(0, 2**20),
+        )
         def run_command(
             instance: list[str],
             filter_string: FilterExpression,
             max_time: str,
             trace: bool,
             repeat_times: int,
+            seed: int,
         ):
             """
             Executes optimization runs for a specified problem and instance(s).
@@ -662,14 +682,16 @@ class CLI:
 
                     with VizTracer(min_duration=20):
                         self._execute_run_logic(
-                            instance, max_time, filter_string, repeat_times
+                            instance, max_time, filter_string, repeat_times, seed
                         )
                 except ImportError:
                     click.echo(
                         "Warning: to use --trace, please, install viztracer with pip install viztracer"
                     )
             else:
-                self._execute_run_logic(instance, max_time, filter_string, repeat_times)
+                self._execute_run_logic(
+                    instance, max_time, filter_string, repeat_times, seed
+                )
 
         @cli.command(name="plot", help="Plot saved runs for a given instance.")
         @click.option(

@@ -512,7 +512,7 @@ def plot_combined_results(
             order=filter_groups,
             hue="Configuration",
             legend=False,
-            jitter=0.2,
+            jitter=0.1,
             alpha=0.4,
             size=3,
             ax=ax_strip,

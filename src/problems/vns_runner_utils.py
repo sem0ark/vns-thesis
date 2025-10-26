@@ -54,8 +54,8 @@ def run_vns_optimizer(
     num_solutions = len(optimizer.get_solutions())
     logger.info(
         "Ran for %.2f seconds, %d iterations. Total # solutions: %d",
-        iteration_actual,
         time.time() - start_time,
+        iteration_actual,
         num_solutions,
     )
     return optimizer.get_solutions()
