@@ -40,7 +40,7 @@ def run_vns_optimizer(
             improved_in_cycle = improved or improved_in_cycle
 
         if current_time >= last_log_time + LOGGING_INTERVAL:
-            front = optimizer.acceptance_criterion.get_all_solutions()
+            front = optimizer.get_solutions()
             last_log_time = current_time
 
             logger.info(
@@ -51,11 +51,11 @@ def run_vns_optimizer(
             )
             improved_in_cycle = False
 
-    num_solutions = len(optimizer.acceptance_criterion.get_all_solutions())
+    num_solutions = len(optimizer.get_solutions())
     logger.info(
         "Ran for %.2f seconds, %d iterations. Total # solutions: %d",
         iteration_actual,
         time.time() - start_time,
         num_solutions,
     )
-    return optimizer.acceptance_criterion.get_all_solutions()
+    return optimizer.get_solutions()

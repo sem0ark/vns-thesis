@@ -6,7 +6,6 @@ from src.vns.local_search import (
     best_improvement,
     composite,
     first_improvement,
-    first_improvement_quick,
     noop,
 )
 
@@ -100,36 +99,6 @@ def test_noop_returns_initial_solution(initial_solution_single):
     results = list(search_func(initial_solution_single))
     assert len(results) == 1
     assert results[0] == initial_solution_single
-
-
-@pytest.mark.parametrize(
-    "objective_index, initial_sol, operator, expected_id",
-    [
-        (
-            0,
-            Solution((10.0,), 10),
-            mock_operator_single_objective,
-            9,
-        ),  # First is better (9 < 10)
-        (
-            None,
-            Solution((10.0, 10.0), 10),
-            mock_operator_multi_objective,
-            9,
-        ),  # First (9, 9) dominates (10, 10)
-        (
-            0,
-            Solution((7.0,), 7),
-            mock_operator_single_objective,
-            7,
-        ),  # No improvement found, yield initial
-    ],
-)
-def test_first_improvement_quick(objective_index, initial_sol, operator, expected_id):
-    search_func = first_improvement_quick(operator, objective_index)
-    results = list(search_func(initial_sol))
-    assert len(results) == 1
-    assert results[0].data_id == expected_id
 
 
 def test_best_improvement_single_objective_full_descent():
@@ -231,39 +200,6 @@ def test_best_improvement_iterative_descent(
 
     final_solution = None
     for result in best_improvement(operator, objective_index)(initial_sol):
-        if result is not None:
-            final_solution = result
-            break
-
-    assert final_solution.data_id == expected_flow_ids[-1], (
-        "Final solution ID mismatch."
-    )
-
-
-@pytest.mark.parametrize(
-    "objective_index, initial_sol, operator, expected_flow_ids",
-    [
-        # Case Q1: Single-Objective, First neighbor is an improvement (10 -> 9).
-        (0, Solution((10.0,), 10), mock_operator_single_objective, [10, 9]),
-        # Case Q2: Multi-Objective, First neighbor is an improvement (10 -> 9).
-        (None, Solution((10.0, 10.0), 10), mock_operator_multi_objective, [10, 9]),
-        # Case Q3: Mixed neighborhood, Third neighbor is the first improvement (10 -> 13).
-        # S11 (11) is worse, S12 (11,9) is non-dominated, S13 (9,9) is improvement.
-        (None, Solution((10.0, 10.0), 10), mock_operator_mixed, [10, 13]),
-        # Case Q4: Local Optimum (Single-Objective 7 only has 10 as neighbor - worse).
-        (0, Solution((7.0,), 7), mock_operator_single_objective, [7, 7]),
-        # Case Q5: Local Optimum (S14 only has S15 (worse) as neighbor).
-        (0, Solution((8.0, 8.0), 14), mock_operator_mixed, [14, 14]),
-    ],
-)
-def test_first_improvement_quick_one_shot(
-    objective_index, initial_sol, operator, expected_flow_ids
-):
-    """Test the single-shot behavior of first_improvement_quick."""
-
-    # 1. Execute the search function
-    final_solution = None
-    for result in first_improvement_quick(operator, objective_index)(initial_sol):
         if result is not None:
             final_solution = result
             break

@@ -33,6 +33,7 @@ def test_vns_initialization():
         data_id=100
     )
     optimizer.reset()
+    optimizer.initialize()
     for _ in zip(range(100), optimizer.optimize()):
         continue
 

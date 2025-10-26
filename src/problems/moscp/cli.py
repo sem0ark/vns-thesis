@@ -17,33 +17,18 @@ from src.core.termination import terminate_time_based
 from src.problems.moscp.problem import MOSCPProblem, MOSCPProblemPymoo
 from src.problems.moscp.vns import flip_op_v2, shake_flip
 from src.problems.vns_runner_utils import run_vns_optimizer
-from src.vns.acceptance import (
-    AcceptBatch,
-    AcceptBatchWrapped,
-    make_skewed_comparator,
-    make_skewed_comparator_v2,
-    make_skewed_comparator_v3,
-    make_skewed_comparator_v4,
-)
+from src.vns.acceptance import AcceptBatch
 from src.vns.local_search import (
     best_improvement,
     noop,
 )
 from src.vns.optimizer import VNSOptimizer
-
-
-def make_v3(alpha, dist_func):
-    acc = AcceptBatchWrapped(None)
-    func = make_skewed_comparator_v3(alpha, dist_func, acc)
-    acc.set_comparison_function(func)
-    return acc
-
-
-def make_v4(alpha, dist_func):
-    acc = AcceptBatchWrapped(None)
-    func = make_skewed_comparator_v4(alpha, dist_func, acc)
-    acc.set_comparison_function(func)
-    return acc
+from src.vns_extensions.skewed_vns import (
+    AcceptBatchSkewedV1,
+    AcceptBatchSkewedV2,
+    AcceptBatchSkewedV3,
+    AcceptBatchSkewedV4,
+)
 
 
 class VNSInstanceRunner(InstanceRunner):
@@ -59,56 +44,8 @@ class VNSInstanceRunner(InstanceRunner):
             ("batch", AcceptBatch()),
             *[
                 (
-                    f"skewed a{mult}",
-                    AcceptBatchWrapped(
-                        make_skewed_comparator(
-                            alpha_weights * mult,
-                            MOSCPProblem.calculate_solution_distance,
-                        )
-                    ),
-                )
-                for mult in alpha_range
-            ],
-            *[
-                (
-                    f"skewed_v2 a{mult}",
-                    AcceptBatchWrapped(
-                        make_skewed_comparator_v2(
-                            alpha_weights * mult,
-                            MOSCPProblem.calculate_solution_distance,
-                        )
-                    ),
-                )
-                for mult in alpha_range
-            ],
-            *[
-                (
-                    f"skewed_v3 a{mult}",
-                    AcceptBatchWrapped(
-                        make_skewed_comparator_v2(
-                            alpha_weights * mult,
-                            MOSCPProblem.calculate_solution_distance_2,
-                        )
-                    ),
-                )
-                for mult in alpha_range
-            ],
-            *[
-                (
-                    f"skewed_v4 a{mult}",
-                    AcceptBatchWrapped(
-                        make_skewed_comparator(
-                            alpha_weights * mult,
-                            MOSCPProblem.calculate_solution_distance_2,
-                        )
-                    ),
-                )
-                for mult in alpha_range
-            ],
-            *[
-                (
-                    f"skewed_v5 a{mult}",
-                    make_v3(
+                    f"skewed_v1 a{mult}",
+                    AcceptBatchSkewedV1(
                         alpha_weights * mult, MOSCPProblem.calculate_solution_distance_2
                     ),
                 )
@@ -116,8 +53,26 @@ class VNSInstanceRunner(InstanceRunner):
             ],
             *[
                 (
-                    f"skewed_v6 a{mult}",
-                    make_v4(
+                    f"skewed_v2 a{mult}",
+                    AcceptBatchSkewedV2(
+                        alpha_weights * mult, MOSCPProblem.calculate_solution_distance_2
+                    ),
+                )
+                for mult in alpha_range
+            ],
+            *[
+                (
+                    f"skewed_v3 a{mult}",
+                    AcceptBatchSkewedV3(
+                        alpha_weights * mult, MOSCPProblem.calculate_solution_distance_2
+                    ),
+                )
+                for mult in alpha_range
+            ],
+            *[
+                (
+                    f"skewed_v4 a{mult}",
+                    AcceptBatchSkewedV4(
                         alpha_weights * mult, MOSCPProblem.calculate_solution_distance_2
                     ),
                 )
@@ -127,17 +82,11 @@ class VNSInstanceRunner(InstanceRunner):
 
         local_search_functions = [
             ("noop", noop()),
-            *[
-                (f"{search_name} {op_name}", search_func_factory(op_func))
-                for (
-                    (search_name, search_func_factory),
-                    (op_name, op_func),
-                ) in itertools.product(
-                    [("BI", best_improvement)],
-                    [("op_flip", flip_op_v2)],
-                )
-            ],
+            ("BI op_flip", best_improvement(flip_op_v2)),
+            ("BI_1 op_flip", best_improvement(flip_op_v2, max_transitions=1)),
+            ("BI_2 op_flip", best_improvement(flip_op_v2, max_transitions=2)),
         ]
+
         shake_functions = [
             ("shake_flip", shake_flip),
         ]

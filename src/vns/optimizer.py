@@ -18,10 +18,11 @@ class VNSOptimizer[T](OptimizerAbstract[T]):
         shake_function: ShakeFunction,
         acceptance_criterion: AcceptanceCriterion[T],
     ):
-        super().__init__(name, version, problem, acceptance_criterion)
+        super().__init__(name, version, problem)
 
         self.search_functions = search_functions
         self.shake_function = shake_function
+        self.acceptance_criterion = acceptance_criterion
 
         self.logger = logging.getLogger(self.__class__.__name__)
 
@@ -54,4 +55,11 @@ class VNSOptimizer[T](OptimizerAbstract[T]):
 
     def initialize(self) -> None:
         for sol in self.problem.get_initial_solutions():
+            self.acceptance_criterion.accept(sol)
+
+    def get_solutions(self) -> list[Solution]:
+        return self.acceptance_criterion.get_all_solutions()
+
+    def add_solutions(self, solutions: list[Solution]) -> None:
+        for sol in solutions:
             self.acceptance_criterion.accept(sol)

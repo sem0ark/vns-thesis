@@ -161,7 +161,6 @@ class OptimizerAbstract[T]:
         name: str,
         version: int,
         problem: Problem[T],
-        acceptance_criterion: AcceptanceCriterion[T],
     ) -> None:
         """Init.
 
@@ -173,7 +172,6 @@ class OptimizerAbstract[T]:
         self.name = name
         self.version = version
         self.problem = problem
-        self.acceptance_criterion = acceptance_criterion
 
     def initialize(self) -> None:
         """
@@ -197,5 +195,11 @@ class OptimizerAbstract[T]:
         """
         Runs the current best set of solutions.
         Returns the best solution found (for single-obj) or the Pareto front (for multi-obj).
+        """
+        raise NotImplementedError()
+
+    def add_solutions(self, solutions: list[Solution]) -> None:
+        """
+        Insert existing solutions into optimizer process.
         """
         raise NotImplementedError()

@@ -1,14 +1,23 @@
 import time
-from typing import Callable, Iterable
+from typing import Callable, Iterable, Literal, Optional
 
-from src.core.abstract import OptimizerAbstract
+from src.core.abstract import OptimizerAbstract, Solution
 
 
-TerminationCriterion = Callable[[Iterable[bool | None]], Iterable[bool | None]]
+TerminationCriterion = Callable[[Iterable[Optional[bool]]], Iterable[Optional[bool]]]
 
 
 def terminate_noop() -> TerminationCriterion:
-    def optimize(optimization_process: Iterable[bool | None]):
+    """
+    Returns a termination criterion that never stops the optimization process.
+
+    This serves as a default or an infinite run wrapper.
+
+    Returns:
+        TerminationCriterion: A function that passes the optimization stream through unchanged.
+    """
+
+    def optimize(optimization_process: Iterable[Optional[bool]]):
         for iteration_result in optimization_process:
             yield iteration_result
 
@@ -16,10 +25,22 @@ def terminate_noop() -> TerminationCriterion:
 
 
 def terminate_time_based(max_time_seconds: float) -> TerminationCriterion:
-    def optimize(optimization_process: Iterable[bool | None]):
-        if max_time_seconds <= 0:
-            raise ValueError("Maximum time must be a positive integer.")
+    """
+    Returns a termination criterion that stops the process after a specified duration.
 
+    Args:
+        max_time_seconds: The maximum wall clock time (in seconds) the process is allowed to run.
+
+    Returns:
+        TerminationCriterion: A function that wraps the optimization stream and stops it by time.
+
+    Raises:
+        ValueError: If max_time_seconds is not positive.
+    """
+    if max_time_seconds <= 0:
+        raise ValueError("Maximum time must be a positive number of seconds.")
+
+    def optimize(optimization_process: Iterable[Optional[bool]]):
         start_time = time.time()
         for iteration_result in optimization_process:
             yield iteration_result
@@ -31,16 +52,31 @@ def terminate_time_based(max_time_seconds: float) -> TerminationCriterion:
 
 
 def terminate_max_iterations(max_iterations: int) -> TerminationCriterion:
-    def optimize(optimization_process: Iterable[bool | None]):
-        if max_iterations <= 0:
-            raise ValueError("Maximum iterations must be a positive integer.")
+    """
+    Returns a termination criterion that stops the process after a maximum number
+    of main VNS cycles (iterations) have completed.
 
+    Note: Only yields where the iteration result is not None count as a VNS cycle.
+
+    Args:
+        max_iterations: The maximum number of VNS main cycles allowed.
+
+    Returns:
+        TerminationCriterion: A function that wraps and stops the stream by iteration count.
+
+    Raises:
+        ValueError: If max_iterations is not positive.
+    """
+    if max_iterations <= 0:
+        raise ValueError("Maximum iterations must be a positive integer.")
+
+    def optimize(optimization_process: Iterable[Optional[bool]]):
         current_iterations = 0
         for iteration_result in optimization_process:
-            yield iteration_result
-
             if current_iterations >= max_iterations:
                 break
+
+            yield iteration_result
 
             if iteration_result is not None:
                 current_iterations += 1
@@ -49,10 +85,25 @@ def terminate_max_iterations(max_iterations: int) -> TerminationCriterion:
 
 
 def terminate_max_no_improvement(max_stagnant_cycles: int) -> TerminationCriterion:
-    def optimize(optimization_process: Iterable[bool | None]):
-        if max_stagnant_cycles <= 0:
-            raise ValueError("Maximum stagnant cycles must be a positive integer.")
+    """
+    Returns a termination criterion that stops the process if no new improvement
+    (an accepted solution, indicated by iteration_result=True) is observed for a
+    specified number of consecutive VNS cycles.
 
+    Args:
+        max_stagnant_cycles: The maximum number of consecutive cycles without improvement
+                             before stopping (patience).
+
+    Returns:
+        TerminationCriterion: A function that wraps and stops the stream based on stagnation.
+
+    Raises:
+        ValueError: If max_stagnant_cycles is not positive.
+    """
+    if max_stagnant_cycles <= 0:
+        raise ValueError("Maximum stagnant cycles must be a positive integer.")
+
+    def optimize(optimization_process: Iterable[Optional[bool]]):
         stagnant_cycles = 0
         for iteration_result in optimization_process:
             yield iteration_result
@@ -67,7 +118,67 @@ def terminate_max_no_improvement(max_stagnant_cycles: int) -> TerminationCriteri
     return optimize
 
 
+def terminate_early_stop(
+    metric_function: Callable[[], float],
+    patience: int,
+    min_delta: float = 1e-4,
+    mode: Literal["min", "max"] = "min",
+    skip_cycles=100,
+) -> TerminationCriterion:
+    """
+    Args:
+        patience: Number of cycles with no improvement before stopping.
+        min_delta: Minimum change in the monitored quantity to qualify as an improvement.
+        mode: One of {'min', 'max'}. In 'min' mode, the goal is to minimize the metric.
+    """
+    if patience <= 0:
+        raise ValueError("Patience must be a positive integer.")
+
+    delta_sign = 1.0 if mode == "min" else -1.0
+
+    def optimize(optimization_process: Iterable[Optional[bool]]):
+        stagnant_cycles = 0
+        best_metric = float("inf") if mode == "min" else -float("inf")
+        count = 0
+
+        for iteration_result in optimization_process:
+            yield iteration_result
+
+            if iteration_result is None or count % skip_cycles != 0:
+                continue
+
+            count += 1
+
+            current_metric = metric_function() + delta_sign * min_delta
+            current_metric_padded = current_metric + delta_sign * min_delta
+            is_improved = (
+                current_metric_padded < best_metric
+                if mode == "min"
+                else current_metric_padded > best_metric
+            )
+
+            if is_improved:
+                best_metric = current_metric
+                stagnant_cycles = 0
+            else:
+                stagnant_cycles += 1
+
+            if stagnant_cycles >= patience:
+                break
+
+    return optimize
+
+
 class StoppableOptimizer[T](OptimizerAbstract[T]):
+    """
+    A wrapper class that embeds a termination criterion into an existing optimizer.
+
+    It delegates the core optimization to the inner optimizer and uses the
+    termination criterion to wrap and control the resulting generator stream.
+
+    The reset and initialize logic is delegated to the inner optimizer.
+    """
+
     def __init__(
         self,
         optimizer: OptimizerAbstract[T],
@@ -77,52 +188,75 @@ class StoppableOptimizer[T](OptimizerAbstract[T]):
             optimizer.name,
             optimizer.version,
             optimizer.problem,
-            optimizer.acceptance_criterion,
         )
 
         self.termination_criterion = termination_criterion
         self.optimizer = optimizer
 
     def reset(self) -> None:
-        self.acceptance_criterion.clear()
+        """Resets the acceptance criterion and the inner optimizer."""
+        self.optimizer.reset()
 
     def initialize(self) -> None:
-        for sol in self.problem.get_initial_solutions():
-            self.acceptance_criterion.accept(sol)
+        """Initializes the acceptance criterion with the problem's starting solutions."""
+        self.optimizer.initialize()
 
-    def optimize(self) -> Iterable[bool | None]:
+    def get_solutions(self) -> list[Solution]:
+        return self.optimizer.get_solutions()
+
+    def add_solutions(self, solutions: list[Solution]) -> None:
+        return self.optimizer.add_solutions(solutions)
+
+    def optimize(self):
+        """
+        Wraps the inner optimizer's stream with the termination criterion.
+
+        Returns:
+            Generator[Optional[bool]]: The terminated optimization stream.
+        """
         return self.termination_criterion(self.optimizer.optimize())
 
 
 class ChainedOptimizer[T](OptimizerAbstract[T]):
+    """
+    An optimizer that runs a sequence of Optimizers one after the other.
+
+    It ensures the acceptance criterion (solution set) is passed from the termination
+    point of one optimizer to the start of the next. The overall run terminates
+    based on the outer termination_criterion wrapping the entire sequence.
+    """
+
     def __init__(
         self,
-        optimizers: list[StoppableOptimizer[T]],
-        termination_criterion: TerminationCriterion = terminate_noop(),
+        optimizers: list[OptimizerAbstract[T]],
     ):
-        optimizer = optimizers[0]
-        super().__init__(
-            optimizer.name,
-            optimizer.version,
-            optimizer.problem,
-            optimizer.acceptance_criterion,
-        )
+        if not optimizers:
+            raise ValueError("ChainedOptimizer requires at least one optimizer.")
 
-        self.termination_criterion = termination_criterion
+        optimizer = optimizers[0]
+        super().__init__(optimizer.name, optimizer.version, optimizer.problem)
+
         self.optimizers = optimizers
+        self.current_optimizer = optimizer
 
     def reset(self) -> None:
-        self.acceptance_criterion.clear()
-
-    def initialize(self) -> None:
-        for sol in self.problem.get_initial_solutions():
-            self.acceptance_criterion.accept(sol)
-
-    def _optimize(self) -> Iterable[bool | None]:
+        """Resets the shared acceptance criterion."""
         for optimizer in self.optimizers:
             optimizer.reset()
-            optimizer.acceptance_criterion = self.acceptance_criterion
-            yield from optimizer.optimize()
 
-    def optimize(self) -> Iterable[bool | None]:
-        return self.termination_criterion(self._optimize())
+    def initialize(self) -> None:
+        """Initializes the shared acceptance criterion with the problem's starting solutions."""
+        for optimizer in self.optimizers:
+            optimizer.initialize()
+
+    def get_solutions(self) -> list[Solution]:
+        return self.current_optimizer.get_solutions()
+
+    def add_solutions(self, solutions: list[Solution]) -> None:
+        return self.current_optimizer.add_solutions(solutions)
+
+    def optimize(self) -> Iterable[Optional[bool]]:
+        for optimizer in self.optimizers:
+            optimizer.add_solutions(self.current_optimizer.get_solutions())
+            self.current_optimizer = optimizer
+            yield from optimizer.optimize()
