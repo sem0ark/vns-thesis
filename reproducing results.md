@@ -94,3 +94,75 @@ END_CMDS
 
 run_parallel_jobs 8 "$ALL_COMMANDS"
 ```
+
+
+Export metrics results for two given problems via:
+```bash
+export PYTHONPATH='.' && uv run python ./src/problems/mokp/cli.py metrics -i "./data/mokp/2KP*.json" -f "(vns and v18) or (pymoo and v5) and 120s" --export
+export PYTHONPATH='.' && uv run python ./src/problems/moscp/cli.py metrics -i "./data/moscp/2scp*.json" -f "(vns and v18) or (pymoo and v5) and 120s" --export
+```
+
+Get plots, based on the grouping and configuration you want:
+```bash
+export PYTHONPATH='.' && uv run ./src/cli/multi_instance_metrics.py -i "./metrics/MOKP_2KP100*.json" \
+-f "batch and k3 and noop and shake_flip and v18 and 120s" -n "RVNS" \
+-f "batch and k3 and BI and op_flip and shake_flip and v18 and 120s" -n "BVNS" \
+-f "skewed_v3 and a0.25 and k3 and BI and op_flip and shake_flip and v18 and 120s" -n "S3-BVNS a0.25" \
+-f "skewed_v4 and a0.25 and k3 and BI and op_flip and shake_flip and v18 and 120s" -n "S4-BVNS a0.25" \
+-f "skewed_v4 and a0.5 and k3 and BI and op_flip and shake_flip and v18 and 120s" -n "S4-BVNS a0.5" \
+-f "skewed_v4 and a1 and k3 and BI and op_flip and shake_flip and v18 and 120s" -n "S4-BVNS a1" \
+--plot-file ~/Downloads/svns_final_comparison_2KP100_120s_no_pymoo.png
+
+export PYTHONPATH='.' && uv run ./src/cli/multi_instance_metrics.py -i "./metrics/MOKP_2KP100*.json" \
+-f "pymoo and nsga2 and pop_500 and v5 and 120s" -n "NSGA2 pop=500" \
+-f "pymoo and spea2 and pop_500 and v5 and 120s" -n "SPEA2 pop=500" \
+-f "batch and k3 and noop and shake_flip and v18 and 120s" -n "RVNS" \
+-f "batch and k3 and BI and op_flip and shake_flip and v18 and 120s" -n "BVNS" \
+-f "skewed_v3 and a0.25 and k3 and BI and op_flip and shake_flip and v18 and 120s" -n "S3-BVNS a0.25" \
+-f "skewed_v4 and a0.25 and k3 and BI and op_flip and shake_flip and v18 and 120s" -n "S4-BVNS a0.25" \
+-f "skewed_v4 and a0.5 and k3 and BI and op_flip and shake_flip and v18 and 120s" -n "S4-BVNS a0.5" \
+-f "skewed_v4 and a1 and k3 and BI and op_flip and shake_flip and v18 and 120s" -n "S4-BVNS a1" \
+--plot-file ~/Downloads/svns_final_comparison_2KP100_120s.png
+
+
+export PYTHONPATH='.' && uv run ./src/cli/multi_instance_metrics.py -i "./metrics/MOKP_2KP200*.json" \
+-f "batch and k3 and noop and shake_flip and v18 and 120s" -n "RVNS" \
+-f "batch and k3 and BI and op_flip and shake_flip and v18 and 120s" -n "BVNS" \
+-f "skewed_v3 and a0.25 and k3 and BI and op_flip and shake_flip and v18 and 120s" -n "S3-BVNS a0.25" \
+-f "skewed_v4 and a0.25 and k3 and BI and op_flip and shake_flip and v18 and 120s" -n "S4-BVNS a0.25" \
+-f "skewed_v4 and a0.5 and k3 and BI and op_flip and shake_flip and v18 and 120s" -n "S4-BVNS a0.5" \
+-f "skewed_v4 and a1 and k3 and BI and op_flip and shake_flip and v18 and 120s" -n "S4-BVNS a1" \
+--plot-file ~/Downloads/svns_final_comparison_2KP200_120s_no_pymoo.png
+
+export PYTHONPATH='.' && uv run ./src/cli/multi_instance_metrics.py -i "./metrics/MOKP_2KP200*.json" \
+-f "pymoo and nsga2 and pop_500 and v5 and 120s" -n "NSGA2 pop=500" \
+-f "pymoo and spea2 and pop_500 and v5 and 120s" -n "SPEA2 pop=500" \
+-f "batch and k3 and noop and shake_flip and v18 and 120s" -n "RVNS" \
+-f "batch and k3 and BI and op_flip and shake_flip and v18 and 120s" -n "BVNS" \
+-f "skewed_v3 and a0.25 and k3 and BI and op_flip and shake_flip and v18 and 120s" -n "S3-BVNS a0.25" \
+-f "skewed_v4 and a0.25 and k3 and BI and op_flip and shake_flip and v18 and 120s" -n "S4-BVNS a0.25" \
+-f "skewed_v4 and a0.5 and k3 and BI and op_flip and shake_flip and v18 and 120s" -n "S4-BVNS a0.5" \
+-f "skewed_v4 and a1 and k3 and BI and op_flip and shake_flip and v18 and 120s" -n "S4-BVNS a1" \
+--plot-file ~/Downloads/svns_final_comparison_2KP200_120s.png
+
+
+export PYTHONPATH='.' && uv run ./src/cli/multi_instance_metrics.py -i "./metrics/MOKP_2KP*.json" \
+-f "batch and k3 and noop and shake_flip and v18 and 120s" -n "RVNS" \
+-f "batch and k3 and BI and op_flip and shake_flip and v18 and 120s" -n "BVNS" \
+-f "skewed_v3 and a0.25 and k3 and BI and op_flip and shake_flip and v18 and 120s" -n "S3-BVNS a0.25" \
+-f "skewed_v4 and a0.25 and k3 and BI and op_flip and shake_flip and v18 and 120s" -n "S4-BVNS a0.25" \
+-f "skewed_v4 and a0.5 and k3 and BI and op_flip and shake_flip and v18 and 120s" -n "S4-BVNS a0.5" \
+-f "skewed_v4 and a1 and k3 and BI and op_flip and shake_flip and v18 and 120s" -n "S4-BVNS a1" \
+--plot-file ~/Downloads/svns_final_comparison_2KP_all_120s_no_pymoo.png
+
+export PYTHONPATH='.' && uv run ./src/cli/multi_instance_metrics.py -i "./metrics/MOKP_2KP*.json" \
+-f "pymoo and nsga2 and pop_500 and v5 and 120s" -n "NSGA2 pop=500" \
+-f "pymoo and spea2 and pop_500 and v5 and 120s" -n "SPEA2 pop=500" \
+-f "batch and k3 and noop and shake_flip and v18 and 120s" -n "RVNS" \
+-f "batch and k3 and BI and op_flip and shake_flip and v18 and 120s" -n "BVNS" \
+-f "skewed_v3 and a0.25 and k3 and BI and op_flip and shake_flip and v18 and 120s" -n "S3-BVNS a0.25" \
+-f "skewed_v4 and a0.25 and k3 and BI and op_flip and shake_flip and v18 and 120s" -n "S4-BVNS a0.25" \
+-f "skewed_v4 and a0.5 and k3 and BI and op_flip and shake_flip and v18 and 120s" -n "S4-BVNS a0.5" \
+-f "skewed_v4 and a1 and k3 and BI and op_flip and shake_flip and v18 and 120s" -n "S4-BVNS a1" \
+--plot-file ~/Downloads/svns_final_comparison_2KP_all_120s.png
+```
