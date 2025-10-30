@@ -6,10 +6,10 @@ from typing import Any, cast
 
 import click
 import matplotlib.pyplot as plt
-import seaborn as sns
 import numpy as np
 import pandas as pd
 import scikit_posthocs
+import seaborn as sns
 from scipy import stats
 
 from src.cli.filter_param import ClickFilterExpression, FilterExpression
@@ -18,17 +18,17 @@ METRIC_MAPPING = {
     "hypervolume": "relative hypervolume loss",
     # "epsilon": "multiplicative epsilon",
     "inverted_generational_distance": "IGD",
-    "r_metric": "R2 metric",
+    "r_metric": "R2 metric loss",
 }
 METRIC_MAPPING_SHORT = {
     "hypervolume": "HV loss",
     # "epsilon": "E.mult.",
     "inverted_generational_distance": "IGD",
-    "r_metric": "R2 metric",
+    "r_metric": "R2 loss",
     "relative hypervolume loss": "HV loss",
     "multiplicative epsilon": "E.mult.",
     "IGD": "IGD",
-    "R2 metric": "R2 metric",
+    "R2 metric": "R2 loss",
 }
 METRIC_KEYS = list(METRIC_MAPPING.keys())
 METRIC_NAMES = list(METRIC_MAPPING.values())

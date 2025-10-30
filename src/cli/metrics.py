@@ -72,7 +72,7 @@ def merge_runs_to_non_dominated_front(runs: list[SavedRun]) -> np.ndarray:
             reference_front.accept(cast(Any, sol))
 
     all_objectives = []
-    for sol in reference_front.get_all_solutions():
+    for sol in reference_front.solutions:
         all_objectives.append(sol.objectives)
 
     if not all_objectives:
@@ -244,7 +244,7 @@ def calculate_metrics(
         print("Got a predefined reference front!")
         reference_front = np.array(predefined_front)
     else:
-        print("Merging all solutions to get a reference front...")
+        print(f"Merging all runs ({len(all_runs)}) to get a reference front...")
         reference_front = merge_runs_to_non_dominated_front(all_runs)
 
     if reference_front.size == 0:
@@ -265,6 +265,10 @@ def calculate_metrics(
     # Calculate an ideal point for R2 (best point)
     r2_ideal_point = np.min(reference_front, axis=0)
     r2_weights = _generate_uniform_weights(num_objectives, num_weights=100)
+
+    reference_r2_metric = calculate_r2_metric(
+        reference_front, r2_ideal_point, r2_weights
+    )
 
     metrics_results_aggregated = {}
     metrics_results = {}
@@ -292,13 +296,16 @@ def calculate_metrics(
             hypervolume_indicator = HV(ref_point=hypervolume_reference_point)
             relative_hypervolume = (
                 reference_front_hypervolume - (hypervolume_indicator.do(front) or 0.0)
-            ) / reference_front_hypervolume
+            ) / (reference_front_hypervolume + 1e-6)
 
             # Multiplicative Epsilon. For minimization, smaller is better.
             epsilon = epsilon_indicator(front, reference_front)
 
-            # R2 Unary Indicator. For minimization, smaller is better.
-            r_metric = calculate_r2_metric(front, r2_ideal_point, r2_weights)
+            # Relative missing R2 Unary Indicator compared to reference front. For minimization, smaller is better.
+            relative_r_metric = (
+                calculate_r2_metric(front, r2_ideal_point, r2_weights)
+                - reference_r2_metric
+            )
 
             # Inverted Generational Distance (IGD). For minimization, smaller is better.
             igd_indicator = IGD(reference_front)
@@ -308,7 +315,7 @@ def calculate_metrics(
                 Metrics(
                     epsilon=epsilon,
                     hypervolume=relative_hypervolume,
-                    r_metric=r_metric,
+                    r_metric=relative_r_metric,
                     inverted_generational_distance=0
                     if epsilon == 1
                     else (inverted_generational_distance or np.nan),
@@ -495,7 +502,7 @@ def prepare_unary_metrics_table_data(
         "Config",
         "Epsilon (multiplicative)",
         "Hypervolume (Relative loss)",
-        "R-Metric",
+        "R-Metric (Relative loss)",
         "IGD",
     ]
 
@@ -649,9 +656,10 @@ You can also click on graphs in legend to show/hide any specific one.
         print("Got a predefined reference front!")
         reference_front = np.array(predefined_front)
     else:
-        print("Merging all runs to get an approximate reference front...")
+        print(
+            f"Merging all runs ({len(all_runs)}) to get an approximate reference front..."
+        )
         reference_front = merge_runs_to_non_dominated_front(all_runs)
-        print(f"Made a reference front from {len(all_runs)} runs")
 
     if reference_front.size == 0:
         print("Error: reference front is empty! Exiting...")
