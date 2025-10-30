@@ -1,12 +1,14 @@
 from typing import Any, Callable
+
 from src.core.abstract import Solution
 from src.vns.acceptance import (
+    AcceptBatch,
     AcceptBatchWrapped,
+    AcceptBeam,
     AcceptBeamWrapped,
     ComparisonResult,
     is_dominating_min,
 )
-
 
 ObjectiveFunction = Callable[[Any], tuple[float, ...]]
 
@@ -26,6 +28,16 @@ def make_comparator(additional_objective_functions: list[ObjectiveFunction]):
         )
 
     return compare_solutions_better_stacked
+
+
+class AcceptBeamVFSShallow(AcceptBeam):
+    def __init__(self, additional_objective_functions: list[ObjectiveFunction]):
+        super().__init__(make_comparator(additional_objective_functions))
+
+
+class AcceptBatchVFSShallow(AcceptBatch):
+    def __init__(self, *additional_objective_functions: ObjectiveFunction):
+        super().__init__(make_comparator(list(additional_objective_functions)))
 
 
 class AcceptBeamVFS(AcceptBeamWrapped):

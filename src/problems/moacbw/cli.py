@@ -13,11 +13,11 @@ from pymoo.util.nds.non_dominated_sorting import NonDominatedSorting
 
 from src.cli.problem_cli import CLI, InstanceRunner, RunConfig
 from src.cli.shared import Metadata, SavedRun, SavedSolution
+from src.cli.vns_runner import run_vns_optimizer
 from src.core.abstract import OptimizerAbstract
 from src.core.termination import terminate_time_based
 from src.problems.moacbw.problem import MOACBWProblem, MOACBWProblemPymoo
 from src.problems.moacbw.vns import shake_swap, swap_limited_op, swap_op
-from src.problems.vns_runner_utils import run_vns_optimizer
 from src.vns.acceptance import AcceptBatch
 from src.vns.local_search import (
     best_improvement,
