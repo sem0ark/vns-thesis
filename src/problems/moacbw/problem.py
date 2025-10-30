@@ -5,8 +5,8 @@ import numpy as np
 import xxhash
 from pymoo.core.problem import ElementwiseProblem
 
+from src.cli.utils import lru_cache_custom_hash_key
 from src.core.abstract import Problem, Solution
-from src.problems.utils import lru_cache_custom_hash_key
 
 type MOACBWSolution = Solution[np.ndarray]
 

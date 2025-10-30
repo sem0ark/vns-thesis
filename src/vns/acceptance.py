@@ -55,21 +55,11 @@ def compare_solutions_better(
     return is_dominating_min(new_solution.objectives, current_solution.objectives)
 
 
-class ParetoFront(AcceptanceCriterion):
-    """
-    Maintains an archive of non-dominated solutions (Pareto front).
-
-    This acceptance criterion proposes iteration through the current front to be:
-    - Instead of treating front as a single entity requiring a single iteration, it treats it as a buffer of solutions.
-    - Each time it is required to take the next solution to be processed, it takes a random solution from pareto front.
-    - In case it accepts a solution, it updates the current front.
-    - In case it rejects a solution, solution is discarded.
-    """
-
+class ParetoFront:
     def __init__(self, comparison_function=compare_solutions_better):
         super().__init__()
 
-        self.front: list[Solution] = []
+        self.solutions: list[Solution] = []
         self.comparison_cache: dict[int, ComparisonResult] = {}
         self.compare_solutions = comparison_function
 
@@ -81,7 +71,7 @@ class ParetoFront(AcceptanceCriterion):
 
         candidate_is_dominating = False
 
-        for i, solution in enumerate(self.front):
+        for i, solution in enumerate(self.solutions):
             if candidate == solution:
                 return False
 
@@ -97,32 +87,52 @@ class ParetoFront(AcceptanceCriterion):
         # Prune dominated solutions in-place using two pointers.
         if candidate_is_dominating:
             i = 0
-            for j in range(len(self.front)):
-                solution = self.front[j]
+            for j in range(len(self.solutions)):
+                solution = self.solutions[j]
 
                 if self.comparison_cache[j] != ComparisonResult.STRICTLY_BETTER:
-                    self.front[i] = solution
+                    self.solutions[i] = solution
                     i += 1
 
-            del self.front[i:]
+            del self.solutions[i:]
 
-        self.front.append(candidate)
+        self.solutions.append(candidate)
         return True
 
+    def clear(self):
+        self.solutions.clear()
+        self.comparison_cache.clear()
+
+
+class AcceptBeam(AcceptanceCriterion):
+    """
+    Maintains an archive of non-dominated solutions (Pareto front).
+
+    This acceptance criterion proposes iteration through the current front to be:
+    - Instead of treating front as a single entity requiring a single iteration, it treats it as a buffer of solutions.
+    - Each time it is required to take the next solution to be processed, it takes a random solution from pareto front.
+    - In case it accepts a solution, it updates the current front.
+    - In case it rejects a solution, solution is discarded.
+    """
+
+    def __init__(self, comparison_function=compare_solutions_better):
+        super().__init__()
+
+        self.front = ParetoFront(comparison_function=comparison_function)
+
+    def accept(self, candidate: Solution) -> bool:
+        return self.front.accept(candidate)
+
     def get_all_solutions(self) -> list[Solution]:
-        return self.front
+        return self.front.solutions
 
     def get_one_current_solution(self) -> Solution:
-        if not self.front:
+        if not self.front.solutions:
             raise ValueError("Front is empty. Cannot select a solution.")
-        return random.choice(self.front)
+        return random.choice(self.front.solutions)
 
     def clear(self):
         self.front.clear()
-        self.comparison_cache.clear()
-
-    def _get_size(self) -> tuple[int, ...]:
-        return (len(self.front),)
 
 
 class AcceptBatch(AcceptanceCriterion):
@@ -137,10 +147,12 @@ class AcceptBatch(AcceptanceCriterion):
     - After iteration through the current front is done, it switches to the upcoming front being a union of accepted solutions and non-dominated solutions from the previous front.
     """
 
-    def __init__(self):
+    def __init__(self, comparison_function=compare_solutions_better):
         super().__init__()
         # Holds the live, updated non-dominated solutions
-        self.true_front: ParetoFront = ParetoFront()
+        self.true_front: ParetoFront = ParetoFront(
+            comparison_function=comparison_function
+        )
         # Holds the solutions to be iterated over in the current batch
         self.front_snapshot: list[Solution] = []
 
@@ -152,7 +164,7 @@ class AcceptBatch(AcceptanceCriterion):
         return accepted
 
     def get_all_solutions(self) -> list[Solution]:
-        return self.true_front.get_all_solutions()
+        return self.true_front.solutions
 
     def get_one_current_solution(self) -> Solution:
         if not self.front_snapshot:
@@ -164,7 +176,7 @@ class AcceptBatch(AcceptanceCriterion):
         raise ValueError("Archive is empty and all solutions have been processed.")
 
     def _take_snapshot(self):
-        current_solutions = self.true_front.get_all_solutions()
+        current_solutions = self.true_front.solutions
         for i, solution in enumerate(current_solutions):
             if i == len(self.front_snapshot):
                 self.front_snapshot.append(solution)
@@ -176,9 +188,6 @@ class AcceptBatch(AcceptanceCriterion):
     def clear(self):
         self.front_snapshot.clear()
         self.true_front.clear()
-
-    def _get_size(self) -> tuple[int, ...]:
-        return self.true_front._get_size()
 
 
 class AcceptBeamWrapped(AcceptanceCriterion):
@@ -219,21 +228,17 @@ class AcceptBeamWrapped(AcceptanceCriterion):
         self.true_front.accept(candidate)
         return self.custom_front.accept(candidate)
 
-    def get_one_current_solution(self) -> Solution:
-        return self.custom_front.get_one_current_solution()
-
     def get_all_solutions(self) -> list[Solution]:
-        return self.true_front.get_all_solutions()
+        return self.true_front.solutions
+
+    def get_one_current_solution(self) -> Solution:
+        if not self.custom_front.solutions:
+            raise ValueError("Front is empty. Cannot select a solution.")
+        return random.choice(self.custom_front.solutions)
 
     def clear(self):
         self.true_front.clear()
         self.custom_front.clear()
-
-    def _get_size(self) -> tuple[int, ...]:
-        return (
-            self.true_front._get_size()[0],
-            self.custom_front._get_size()[0],
-        )
 
 
 class AcceptBatchWrapped(AcceptanceCriterion):
@@ -284,7 +289,7 @@ class AcceptBatchWrapped(AcceptanceCriterion):
         return accepted
 
     def get_all_solutions(self) -> list[Solution]:
-        return self.true_front.get_all_solutions()
+        return self.true_front.solutions
 
     def get_one_current_solution(self) -> Solution:
         if not self.front_snapshot:
@@ -296,15 +301,9 @@ class AcceptBatchWrapped(AcceptanceCriterion):
         raise ValueError("Archive is empty and all solutions have been processed.")
 
     def _take_snapshot(self):
-        self.front_snapshot = list(self.custom_front.get_all_solutions())
+        self.front_snapshot = list(self.custom_front.solutions)
 
     def clear(self):
         self.true_front.clear()
         self.custom_front.clear()
         self.front_snapshot.clear()
-
-    def _get_size(self) -> tuple[int, ...]:
-        return (
-            self.true_front._get_size()[0],
-            self.custom_front._get_size()[0],
-        )

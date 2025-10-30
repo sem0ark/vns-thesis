@@ -12,19 +12,18 @@ from pymoo.termination.max_time import TimeBasedTermination
 
 from src.cli.problem_cli import CLI, InstanceRunner, RunConfig
 from src.cli.shared import Metadata, SavedRun, SavedSolution
+from src.cli.vns_runner import run_vns_optimizer
 from src.core.abstract import OptimizerAbstract
 from src.core.termination import terminate_time_based
 from src.problems.mokp.problem import MOKPProblem, MOKPPymoo
 from src.problems.mokp.vns import (
     flip_op,
     shake_flip,
-    shake_swap,
-    swap_op,
 )
-from src.problems.vns_runner_utils import run_vns_optimizer
 from src.vns.acceptance import AcceptBatch
 from src.vns.local_search import (
     best_improvement,
+    composite,
     noop,
 )
 from src.vns.optimizer import VNSOptimizer
@@ -33,6 +32,9 @@ from src.vns_extensions.skewed_vns import (
     AcceptBatchSkewedV2,
     AcceptBatchSkewedV3,
     AcceptBatchSkewedV4,
+    AcceptBatchSkewedV5,
+    AcceptBatchSkewedV6,
+    AcceptBatchSkewedV7,
 )
 
 
@@ -45,69 +47,50 @@ class VNSInstanceRunner(InstanceRunner):
         alpha_weights = np.mean(self.problem.profits, axis=1)
 
         alpha_range = [0.25, 0.5, 1, 2, 3]
+        dist_func = MOKPProblem.calculate_solution_distance_2
         acceptance_criteria = [
             ("batch", AcceptBatch()),
             *[
                 (
-                    f"skewed_v1 a{mult}",
-                    AcceptBatchSkewedV1(
-                        alpha_weights * mult, MOKPProblem.calculate_solution_distance_2
-                    ),
+                    f"skewed_v{acc_idx} skewed_direct_compare a{mult}",
+                    acc(alpha_weights * mult, dist_func),
                 )
                 for mult in alpha_range
-            ],
-            *[
-                (
-                    f"skewed_v2 a{mult}",
-                    AcceptBatchSkewedV2(
-                        alpha_weights * mult, MOKPProblem.calculate_solution_distance_2
-                    ),
+                for acc_idx, acc in enumerate(
+                    [
+                        AcceptBatchSkewedV1,
+                        AcceptBatchSkewedV2,
+                        AcceptBatchSkewedV3,
+                        AcceptBatchSkewedV4,
+                        AcceptBatchSkewedV5,
+                        AcceptBatchSkewedV6,
+                        AcceptBatchSkewedV7,
+                    ],
+                    start=1,
                 )
-                for mult in alpha_range
-            ],
-            *[
-                (
-                    f"skewed_v3 a{mult}",
-                    AcceptBatchSkewedV3(
-                        alpha_weights * mult, MOKPProblem.calculate_solution_distance_2
-                    ),
-                )
-                for mult in alpha_range
-            ],
-            *[
-                (
-                    f"skewed_v4 a{mult}",
-                    AcceptBatchSkewedV4(
-                        alpha_weights * mult, MOKPProblem.calculate_solution_distance_2
-                    ),
-                )
-                for mult in alpha_range
             ],
         ]
 
-        local_search_functions = [
-            ("noop", noop()),
-            ("BI op_flip", best_improvement(flip_op)),
-            ("BI_1 op_flip", best_improvement(flip_op, max_transitions=1)),
-            ("BI_2 op_flip", best_improvement(flip_op, max_transitions=2)),
-            ("BI op_swap", best_improvement(swap_op)),
-            ("BI_1 op_swap", best_improvement(swap_op, max_transitions=1)),
-            ("BI_2 op_swap", best_improvement(swap_op, max_transitions=2)),
-        ]
-
-        shake_functions = [
-            ("shake_flip", shake_flip),
-            ("shake_swap", shake_swap),
+        search_functions = [
+            ("noop shake_flip", noop(), shake_flip),
+            ("BI op_flip shake_flip", best_improvement(flip_op), shake_flip),
+            (
+                "BI_1 op_flip shake_flip",
+                best_improvement(flip_op, max_transitions=1),
+                shake_flip,
+            ),
+            (
+                "BI_2 op_flip shake_flip",
+                best_improvement(flip_op, max_transitions=2),
+                shake_flip,
+            ),
         ]
 
         for (
             (acc_name, acceptance_criterion),
-            (search_name, search_func),
-            (shake_name, shake_func),
+            (search_name, search_func, shake_func),
             k,
-        ) in itertools.product(
-            acceptance_criteria, local_search_functions, shake_functions, range(1, 8)
-        ):
+        ) in itertools.product(acceptance_criteria, search_functions, range(1, 8)):
             common_name = "BVNS"
             if "composite_" in search_name:
                 common_name = "GVNS"
@@ -116,9 +99,71 @@ class VNSInstanceRunner(InstanceRunner):
             elif "skewed" in acc_name:
                 common_name = "SVNS"
 
-            config_name = (
-                f"vns {common_name} {acc_name} {search_name} k{k} {shake_name}"
+            config_name = f"vns {common_name} {acc_name} {search_name} k{k}"
+
+            optimizer = VNSOptimizer(
+                problem=self.problem,
+                search_functions=[search_func] * k,
+                acceptance_criterion=acceptance_criterion,
+                shake_function=shake_func,
+                name=config_name,
+                version=18,
             )
+
+            yield config_name, self.make_func(optimizer)
+
+    def make_func(self, optimizer: OptimizerAbstract):
+        def run(config: RunConfig):
+            solutions = run_vns_optimizer(
+                optimizer, terminate_time_based(config.run_time_seconds)
+            )
+
+            return SavedRun(
+                metadata=Metadata(
+                    run_time_seconds=int(config.run_time_seconds),
+                    name=optimizer.name,
+                    version=optimizer.version,
+                    problem_name="MOKP",
+                    instance_name=config.instance_path.stem,
+                ),
+                solutions=[
+                    SavedSolution(sol.objectives, sol.to_json_serializable())
+                    for sol in solutions
+                ],
+            )
+
+        return run
+
+
+class MOVND_VNSInstanceRunner(InstanceRunner):
+    def __init__(self, config: RunConfig):
+        super().__init__(config)
+        self.problem = MOKPProblem.load(str(config.instance_path))
+
+    def get_variants(self) -> Iterable[tuple[str, Callable[[RunConfig], SavedRun]]]:
+        acceptance_criteria = [
+            ("batch", AcceptBatch()),
+        ]
+
+        search_functions = [
+            (
+                "MOVND_BI op_flip shake_flip",
+                composite(
+                    [
+                        best_improvement(flip_op, objective_index=i)
+                        for i in range(self.problem.num_objectives)
+                    ]
+                ),
+                shake_flip,
+            ),
+        ]
+
+        for (
+            (acc_name, acceptance_criterion),
+            (search_name, search_func, shake_func),
+            k,
+        ) in itertools.product(acceptance_criteria, search_functions, range(1, 8)):
+            config_name = f"vns MOVNS {acc_name} {search_name} k{k}"
 
             optimizer = VNSOptimizer(
                 problem=self.problem,
@@ -227,4 +272,9 @@ class PymooInstanceRunner(InstanceRunner):
 
 if __name__ == "__main__":
     base = Path(__file__).parent / "runs"
-    CLI("MOKP", base, [VNSInstanceRunner, PymooInstanceRunner], MOKPProblem).run()
+    CLI(
+        "MOKP",
+        base,
+        [VNSInstanceRunner, MOVND_VNSInstanceRunner, PymooInstanceRunner],
+        MOKPProblem,
+    ).run()

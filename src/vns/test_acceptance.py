@@ -5,8 +5,8 @@ import pytest
 from src.vns.acceptance import (
     AcceptBatch,
     AcceptBatchWrapped,
+    AcceptBeam,
     ComparisonResult,
-    ParetoFront,
     compare_solutions_better,
     is_dominating_min,
 )
@@ -151,8 +151,8 @@ def test_accept_beam_acceptance_logic(
     Test the core logic of AcceptBeam.accept for various domination scenarios.
     """
 
-    criterion = ParetoFront()
-    criterion.front = [Solution(obj) for obj in initial_front_data]
+    criterion = AcceptBeam()
+    criterion.front.solutions = [Solution(obj) for obj in initial_front_data]
     candidate = Solution(candidate_data)
     actual_acceptance = criterion.accept(candidate)
     actual_front_data = [s.objectives for s in criterion.get_all_solutions()]
@@ -181,8 +181,8 @@ def test_accept_updates_true_front_and_initial_snapshot():
     accepted_1 = criterion.accept(candidate_1)
     assert accepted_1 is True
     # Check true front (live archive)
-    assert len(criterion.true_front.front) == 1
-    assert candidate_1 in criterion.true_front.front
+    assert len(criterion.true_front.solutions) == 1
+    assert candidate_1 in criterion.true_front.solutions
     # Check snapshot (should have been created immediately after first accept)
     assert criterion.front_snapshot == [candidate_1]
 
@@ -190,8 +190,8 @@ def test_accept_updates_true_front_and_initial_snapshot():
     accepted_2 = criterion.accept(candidate_2)
     assert accepted_2 is True
     # Check true front (live archive)
-    assert len(criterion.true_front.front) == 2
-    assert candidate_2 in criterion.true_front.front
+    assert len(criterion.true_front.solutions) == 2
+    assert candidate_2 in criterion.true_front.solutions
     # Check snapshot (remains unchanged)
     assert criterion.front_snapshot == [candidate_1]
 
@@ -199,7 +199,7 @@ def test_accept_updates_true_front_and_initial_snapshot():
     accepted_3 = criterion.accept(candidate_3_duplicate)
     assert accepted_3 is False
     # True front size remains 2
-    assert len(criterion.true_front.front) == 2
+    assert len(criterion.true_front.solutions) == 2
 
 
 def test_get_one_current_solution_iterates_through_snapshot_wrapped():
@@ -230,18 +230,18 @@ def test_take_snapshot_makes_correct_snapshot_wrapped():
     s1, s2, s3 = Solution((10.0,), 1), Solution((20.0,), 2), Solution((30.0,), 3)
 
     # Taking multiple snapshots should not change the snapshot without changes in the front
-    criterion.true_front.front = []
-    criterion.custom_front.front = [s1, s2, s3]
+    criterion.true_front.solutions = []
+    criterion.custom_front.solutions = [s1, s2, s3]
     criterion._take_snapshot()
     assert criterion.front_snapshot == [s1, s2, s3]
 
-    criterion.true_front.front = []
-    criterion.custom_front.front = [s3, s2, s1]
+    criterion.true_front.solutions = []
+    criterion.custom_front.solutions = [s3, s2, s1]
     criterion._take_snapshot()
     assert criterion.front_snapshot == [s3, s2, s1]
 
-    criterion.true_front.front = []
-    criterion.custom_front.front = [s1, s2, s3]
+    criterion.true_front.solutions = []
+    criterion.custom_front.solutions = [s1, s2, s3]
     criterion._take_snapshot()
     assert criterion.front_snapshot == [s1, s2, s3]
 
@@ -251,7 +251,7 @@ def test_get_one_current_solution_triggers_snapshot_when_empty_wrapped():
     criterion = AcceptBatchWrapped(compare_solutions_better)
 
     # 1. Setup true_front (live archive)
-    criterion.custom_front.front.extend(
+    criterion.custom_front.solutions.extend(
         [Solution((100.0,), 100), Solution((200.0,), 200)]
     )
 
@@ -293,12 +293,12 @@ def test_clear_resets_both_internal_structures_wrapped():
     criterion.custom_front.accept(Solution((1.0,), 1))
     criterion.front_snapshot.append(Solution((2.0,), 2))
 
-    assert criterion.true_front.front
-    assert criterion.custom_front.front
+    assert criterion.true_front.solutions
+    assert criterion.custom_front.solutions
     assert criterion.front_snapshot
 
     criterion.clear()
 
-    assert not criterion.true_front.front
-    assert not criterion.custom_front.front
+    assert not criterion.true_front.solutions
+    assert not criterion.custom_front.solutions
     assert not criterion.front_snapshot

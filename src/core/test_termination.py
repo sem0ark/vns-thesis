@@ -1,6 +1,7 @@
-import pytest
-from typing import Optional, Iterable, Generator
+from typing import Generator, Iterable, Optional
 from unittest.mock import Mock, patch
+
+import pytest
 
 from src.core.abstract import AcceptanceCriterion, OptimizerAbstract
 from src.core.termination import (

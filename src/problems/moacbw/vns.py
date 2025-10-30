@@ -1,7 +1,7 @@
 import random
 from typing import Any, Iterable
 
-from src.problems.moacbw.problem import _MOACBWSolution, MOACBWSolution
+from src.problems.moacbw.problem import MOACBWSolution, _MOACBWSolution
 
 
 def shuffled(lst: Iterable) -> list[Any]:

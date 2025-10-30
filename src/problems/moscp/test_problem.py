@@ -1,5 +1,6 @@
 import numpy as np
 import pytest
+
 from src.problems.moscp.problem import MOSCPProblem, _MOSCPSolution
 
 

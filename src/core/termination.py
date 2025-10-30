@@ -3,7 +3,6 @@ from typing import Callable, Iterable, Literal, Optional
 
 from src.core.abstract import OptimizerAbstract, Solution
 
-
 TerminationCriterion = Callable[[Iterable[Optional[bool]]], Iterable[Optional[bool]]]
 
 

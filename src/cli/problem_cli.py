@@ -1,4 +1,3 @@
-from datetime import datetime
 import glob
 import json
 import logging
@@ -7,6 +6,7 @@ import shutil
 from collections import defaultdict
 from copy import deepcopy
 from dataclasses import asdict, dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Iterable, cast
 
@@ -147,7 +147,7 @@ def _merge_runs_to_non_dominated_front(runs: list[SavedRun]) -> SavedRun:
 
     result = SavedRun(
         metadata=deepcopy(runs[0].metadata),
-        solutions=cast(Any, reference_front.get_all_solutions()),
+        solutions=cast(Any, reference_front.solutions),
     )
 
     return result
@@ -481,6 +481,7 @@ class CLI:
         filter_expression: FilterExpression,
         repeat_times: int,
         seed: int,
+        additional_tags: str,
     ):
         """Contains the logic for running optimizations and saving results."""
         run_time_seconds = parse_time_string(max_time)
@@ -541,10 +542,11 @@ class CLI:
 
                     destination_path = (
                         self.storage_folder
-                        / f"{self.problem_name}_{instance_name} {variant_name} "
+                        / f"{self.problem_name}_{instance_name} {additional_tags} "
                         f"{timestamp.split('.')[0].replace(':', '-')}_{random_hash}.json"
                     )
                     results.metadata.file_path = destination_path
+                    results.metadata.name += f" {additional_tags}"
 
                     with open(destination_path, "w") as f:
                         json.dump(asdict(results), f, cls=NpEncoder)
@@ -663,6 +665,13 @@ class CLI:
             required=False,
             default=random.randint(0, 2**20),
         )
+        @click.option(
+            "--tags",
+            "additional_tags",
+            type=str,
+            required=False,
+            default="",
+        )
         def run_command(
             instance: list[str],
             filter_string: FilterExpression,
@@ -670,19 +679,27 @@ class CLI:
             trace: bool,
             repeat_times: int,
             seed: int,
+            additional_tags: str,
         ):
             """
             Executes optimization runs for a specified problem and instance(s).
 
             Example: script.py run -i 'data/*.json' -t 30s -f 'vns,k1 or vns,k3'
             """
+            additional_tags = " ".join(additional_tags.split())
+
             if trace:
                 try:
                     from viztracer import VizTracer
 
                     with VizTracer(min_duration=20):
                         self._execute_run_logic(
-                            instance, max_time, filter_string, repeat_times, seed
+                            instance,
+                            max_time,
+                            filter_string,
+                            repeat_times,
+                            seed,
+                            additional_tags,
                         )
                 except ImportError:
                     click.echo(
@@ -690,7 +707,12 @@ class CLI:
                     )
             else:
                 self._execute_run_logic(
-                    instance, max_time, filter_string, repeat_times, seed
+                    instance,
+                    max_time,
+                    filter_string,
+                    repeat_times,
+                    seed,
+                    additional_tags,
                 )
 
         @cli.command(name="plot", help="Plot saved runs for a given instance.")
