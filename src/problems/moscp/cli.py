@@ -16,10 +16,13 @@ from src.cli.vns_runner import run_vns_optimizer
 from src.core.abstract import OptimizerAbstract
 from src.core.termination import terminate_time_based
 from src.problems.moscp.problem import MOSCPProblem, MOSCPProblemPymoo
-from src.problems.moscp.vns import flip_op_v2, shake_flip
-from src.vns.acceptance import AcceptBatch
+from src.problems.moscp.vns import flip_op_v2 as flip_op
+from src.problems.moscp.vns import shake_flip
+from src.vns.acceptance import AcceptBatch, AcceptBeam
 from src.vns.local_search import (
     best_improvement,
+    composite,
+    composite_parallel,
     noop,
 )
 from src.vns.optimizer import VNSOptimizer
@@ -28,6 +31,10 @@ from src.vns_extensions.skewed_vns import (
     AcceptBatchSkewedV2,
     AcceptBatchSkewedV3,
     AcceptBatchSkewedV4,
+    AcceptBatchSkewedV5,
+    AcceptBatchSkewedV6,
+    AcceptBatchSkewedV7,
+    AcceptBatchSkewedV8,
 )
 
 
@@ -37,90 +44,7 @@ class VNSInstanceRunner(InstanceRunner):
         self.problem = MOSCPProblem.load(str(config.instance_path))
 
     def get_variants(self) -> Iterable[tuple[str, Callable[[RunConfig], SavedRun]]]:
-        alpha_weights = np.mean(self.problem.costs, axis=1)
-
-        alpha_range = [0.25, 0.5, 1, 2, 3]
-        acceptance_criteria = [
-            ("batch", AcceptBatch()),
-            *[
-                (
-                    f"skewed_v1 a{mult}",
-                    AcceptBatchSkewedV1(
-                        alpha_weights * mult, MOSCPProblem.calculate_solution_distance_2
-                    ),
-                )
-                for mult in alpha_range
-            ],
-            *[
-                (
-                    f"skewed_v2 a{mult}",
-                    AcceptBatchSkewedV2(
-                        alpha_weights * mult, MOSCPProblem.calculate_solution_distance_2
-                    ),
-                )
-                for mult in alpha_range
-            ],
-            *[
-                (
-                    f"skewed_v3 a{mult}",
-                    AcceptBatchSkewedV3(
-                        alpha_weights * mult, MOSCPProblem.calculate_solution_distance_2
-                    ),
-                )
-                for mult in alpha_range
-            ],
-            *[
-                (
-                    f"skewed_v4 a{mult}",
-                    AcceptBatchSkewedV4(
-                        alpha_weights * mult, MOSCPProblem.calculate_solution_distance_2
-                    ),
-                )
-                for mult in alpha_range
-            ],
-        ]
-
-        local_search_functions = [
-            ("noop", noop()),
-            ("BI op_flip", best_improvement(flip_op_v2)),
-            ("BI_1 op_flip", best_improvement(flip_op_v2, max_transitions=1)),
-            ("BI_2 op_flip", best_improvement(flip_op_v2, max_transitions=2)),
-        ]
-
-        shake_functions = [
-            ("shake_flip", shake_flip),
-        ]
-
-        for (
-            (acc_name, acc_criteria),
-            (search_name, search_func),
-            (shake_name, shake_func),
-            k,
-        ) in itertools.product(
-            acceptance_criteria, local_search_functions, shake_functions, range(1, 8)
-        ):
-            common_name = "BVNS"
-            if "composite_" in search_name:
-                common_name = "GVNS"
-            elif "noop" in search_name:
-                common_name = "RVNS"
-            elif "skewed" in acc_name:
-                common_name = "SVNS"
-
-            config_name = (
-                f"vns {common_name} {acc_name} {search_name} k{k} {shake_name}"
-            )
-
-            optimizer = VNSOptimizer(
-                problem=self.problem,
-                search_functions=[search_func] * k,
-                acceptance_criterion=acc_criteria,
-                shake_function=shake_func,
-                name=config_name,
-                version=18,
-            )
-
-            yield config_name, self.make_func(optimizer)
+        return []
 
     def make_func(self, optimizer: OptimizerAbstract):
         def run(config: RunConfig):
@@ -132,7 +56,7 @@ class VNSInstanceRunner(InstanceRunner):
                 metadata=Metadata(
                     run_time_seconds=int(config.run_time_seconds),
                     name=optimizer.name,
-                    version=optimizer.version,
+                    version=18,
                     problem_name="MOSCP",
                     instance_name=config.instance_path.stem,
                 ),
@@ -143,6 +67,159 @@ class VNSInstanceRunner(InstanceRunner):
             )
 
         return run
+
+
+class StandardVNSInstanceRunner(VNSInstanceRunner):
+    def get_variants(self) -> Iterable[tuple[str, Callable[[RunConfig], SavedRun]]]:
+        acceptance_criteria = [
+            ("beam", AcceptBeam()),
+            ("batch", AcceptBatch()),
+        ]
+
+        search_functions = [
+            ("noop shake_flip", noop(), shake_flip),
+            ("BI op_flip shake_flip", best_improvement(flip_op), shake_flip),
+            (
+                "BI_1 op_flip shake_flip",
+                best_improvement(flip_op, max_transitions=1),
+                shake_flip,
+            ),
+            (
+                "BI_2 op_flip shake_flip",
+                best_improvement(flip_op, max_transitions=2),
+                shake_flip,
+            ),
+        ]
+
+        for (
+            (acc_name, acceptance_criterion),
+            (search_name, search_func, shake_func),
+            k,
+        ) in itertools.product(acceptance_criteria, search_functions, range(1, 8)):
+            common_name = "BVNS"
+            if "composite_" in search_name:
+                common_name = "GVNS"
+            elif "noop" in search_name:
+                common_name = "RVNS"
+
+            config_name = f"vns {common_name} {acc_name} {search_name} k{k}"
+
+            optimizer = VNSOptimizer(
+                problem=self.problem,
+                search_functions=[search_func] * k,
+                acceptance_criterion=acceptance_criterion,
+                shake_function=shake_func,
+                name=config_name,
+            )
+
+            yield config_name, self.make_func(optimizer)
+
+
+class SVNSInstanceRunner(VNSInstanceRunner):
+    def get_variants(self) -> Iterable[tuple[str, Callable[[RunConfig], SavedRun]]]:
+        alpha_weights = np.mean(self.problem.costs, axis=1)
+
+        alpha_range = [0.25, 0.5, 1, 2, 3]
+        dist_func = MOSCPProblem.calculate_solution_distance_2
+        acceptance_criteria = [
+            (
+                f"skewed_v{acc_idx} {name} a{mult}",
+                acc(alpha_weights * mult, dist_func),
+            )
+            for mult in alpha_range
+            for acc_idx, (name, acc) in enumerate(
+                [
+                    ("wrapped skewed_direct_compare", AcceptBatchSkewedV1),
+                    ("wrapped skewed_direct_compare keep_skewed", AcceptBatchSkewedV2),
+                    ("wrapped skewed_avg_compare", AcceptBatchSkewedV3),
+                    ("wrapped skewed_min_compare", AcceptBatchSkewedV4),
+                    ("shallow skewed_min_compare", AcceptBatchSkewedV5),
+                    ("shallow skewed_min_compare keep_skewed", AcceptBatchSkewedV6),
+                    ("shallow skewed_direct_compare keep_skewed", AcceptBatchSkewedV7),
+                    ("shallow skewed_direct_compare", AcceptBatchSkewedV8),
+                ],
+                start=1,
+            )
+        ]
+
+        search_functions = [
+            ("noop shake_flip", noop(), shake_flip),
+            ("BI op_flip shake_flip", best_improvement(flip_op), shake_flip),
+            (
+                "BI_1 op_flip shake_flip",
+                best_improvement(flip_op, max_transitions=1),
+                shake_flip,
+            ),
+            (
+                "BI_2 op_flip shake_flip",
+                best_improvement(flip_op, max_transitions=2),
+                shake_flip,
+            ),
+        ]
+
+        for (
+            (acc_name, acceptance_criterion),
+            (search_name, search_func, shake_func),
+            k,
+        ) in itertools.product(acceptance_criteria, search_functions, range(1, 8)):
+            config_name = f"vns SVNS {acc_name} {search_name} k{k}"
+
+            optimizer = VNSOptimizer(
+                problem=self.problem,
+                search_functions=[search_func] * k,
+                acceptance_criterion=acceptance_criterion,
+                shake_function=shake_func,
+                name=config_name,
+            )
+
+            yield config_name, self.make_func(optimizer)
+
+
+class MOVND_VNSInstanceRunner(VNSInstanceRunner):
+    def get_variants(self) -> Iterable[tuple[str, Callable[[RunConfig], SavedRun]]]:
+        acceptance_criteria = [
+            ("batch", AcceptBatch()),
+        ]
+
+        search_functions = [
+            (
+                "MOVND_BI op_flip shake_flip",
+                composite(
+                    [
+                        best_improvement(flip_op, objective_index=i)
+                        for i in range(self.problem.num_objectives)
+                    ]
+                ),
+                shake_flip,
+            ),
+            (
+                "parallel_BI op_flip shake_flip",
+                composite_parallel(
+                    [
+                        best_improvement(flip_op, objective_index=i)
+                        for i in range(self.problem.num_objectives)
+                    ]
+                ),
+                shake_flip,
+            ),
+        ]
+
+        for (
+            (acc_name, acceptance_criterion),
+            (search_name, search_func, shake_func),
+            k,
+        ) in itertools.product(acceptance_criteria, search_functions, range(1, 8)):
+            config_name = f"vns MOVNS {acc_name} {search_name} k{k}"
+
+            optimizer = VNSOptimizer(
+                problem=self.problem,
+                search_functions=[search_func] * k,
+                acceptance_criterion=acceptance_criterion,
+                shake_function=shake_func,
+                name=config_name,
+            )
+
+            yield config_name, self.make_func(optimizer)
 
 
 class PymooInstanceRunner(InstanceRunner):
@@ -218,4 +295,14 @@ class PymooInstanceRunner(InstanceRunner):
 
 if __name__ == "__main__":
     base = Path(__file__).parent / "runs"
-    CLI("MOSCP", base, [VNSInstanceRunner, PymooInstanceRunner], MOSCPProblem).run()
+    CLI(
+        "MOSCP",
+        base,
+        [
+            StandardVNSInstanceRunner,
+            SVNSInstanceRunner,
+            MOVND_VNSInstanceRunner,
+            PymooInstanceRunner,
+        ],
+        MOSCPProblem,
+    ).run()
