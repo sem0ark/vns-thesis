@@ -15,18 +15,19 @@ from src.cli.shared import Metadata, SavedRun, SavedSolution
 from src.cli.vns_runner import run_vns_optimizer
 from src.core.abstract import OptimizerAbstract
 from src.core.termination import terminate_time_based
+from src.problems.default_configurations import (
+    get_bvns_variants,
+    get_movnd_vns_variants,
+    get_rvns_variants,
+)
 from src.problems.mokp.problem import MOKPProblem, MOKPPymoo
 from src.problems.mokp.vns import (
     flip_op,
     shake_flip,
+    shake_swap,
 )
 from src.vns.acceptance import AcceptBatch, AcceptBeam
-from src.vns.local_search import (
-    best_improvement,
-    composite,
-    composite_parallel,
-    noop,
-)
+from src.vns.local_search import best_improvement, noop
 from src.vns.optimizer import VNSOptimizer
 from src.vns_extensions.skewed_vns import (
     AcceptBatchSkewedV1,
@@ -71,49 +72,29 @@ class VNSInstanceRunner(InstanceRunner):
         return run
 
 
-class StandardVNSInstanceRunner(VNSInstanceRunner):
+class SharedVNSInstanceRunner(VNSInstanceRunner):
     def get_variants(self) -> Iterable[tuple[str, Callable[[RunConfig], SavedRun]]]:
-        acceptance_criteria = [
-            ("beam", AcceptBeam()),
-            ("batch", AcceptBatch()),
-        ]
+        for config_name, optimizer in get_rvns_variants(
+            self.problem,
+            [("beam", AcceptBeam()), ("batch", AcceptBatch())],
+            [("shake_flip", shake_flip), ("shake_swap", shake_swap)],
+        ):
+            yield config_name, self.make_func(optimizer)
 
-        search_configs = [
-            ("noop shake_flip", noop(), shake_flip),
-            ("BI op_flip shake_flip", best_improvement(flip_op), shake_flip),
-            (
-                "BI_1 op_flip shake_flip",
-                best_improvement(flip_op, max_transitions=1),
-                shake_flip,
-            ),
-            (
-                "BI_2 op_flip shake_flip",
-                best_improvement(flip_op, max_transitions=2),
-                shake_flip,
-            ),
-        ]
+        for config_name, optimizer in get_bvns_variants(
+            self.problem,
+            [("beam", AcceptBeam()), ("batch", AcceptBatch())],
+            [("op_flip", flip_op)],
+            [("shake_flip", shake_flip), ("shake_swap", shake_swap)],
+        ):
+            yield config_name, self.make_func(optimizer)
 
-        for (
-            (acc_name, acceptance_criterion),
-            (search_name, search_func, shake_func),
-            k,
-        ) in itertools.product(acceptance_criteria, search_configs, range(1, 8)):
-            common_name = "BVNS"
-            if "composite_" in search_name:
-                common_name = "GVNS"
-            elif "noop" in search_name:
-                common_name = "RVNS"
-
-            config_name = f"vns {common_name} {acc_name} {search_name} k{k}"
-
-            optimizer = VNSOptimizer(
-                problem=self.problem,
-                search_functions=[search_func] * k,
-                acceptance_criterion=acceptance_criterion,
-                shake_function=shake_func,
-                name=config_name,
-            )
-
+        for config_name, optimizer in get_movnd_vns_variants(
+            self.problem,
+            [("beam", AcceptBeam()), ("batch", AcceptBatch())],
+            [("op_flip", flip_op)],
+            [("shake_flip", shake_flip), ("shake_swap", shake_swap)],
+        ):
             yield config_name, self.make_func(optimizer)
 
 
@@ -165,53 +146,6 @@ class SVNSInstanceRunner(VNSInstanceRunner):
             k,
         ) in itertools.product(acceptance_criteria, search_functions, range(1, 8)):
             config_name = f"vns SVNS {acc_name} {search_name} k{k}"
-
-            optimizer = VNSOptimizer(
-                problem=self.problem,
-                search_functions=[search_func] * k,
-                acceptance_criterion=acceptance_criterion,
-                shake_function=shake_func,
-                name=config_name,
-            )
-
-            yield config_name, self.make_func(optimizer)
-
-
-class MOVND_VNSInstanceRunner(VNSInstanceRunner):
-    def get_variants(self) -> Iterable[tuple[str, Callable[[RunConfig], SavedRun]]]:
-        acceptance_criteria = [
-            ("batch", AcceptBatch()),
-        ]
-
-        search_functions = [
-            (
-                "MOVND_BI op_flip shake_flip",
-                composite(
-                    [
-                        best_improvement(flip_op, objective_index=i)
-                        for i in range(self.problem.num_objectives)
-                    ]
-                ),
-                shake_flip,
-            ),
-            (
-                "parallel_BI op_flip shake_flip",
-                composite_parallel(
-                    [
-                        best_improvement(flip_op, objective_index=i)
-                        for i in range(self.problem.num_objectives)
-                    ]
-                ),
-                shake_flip,
-            ),
-        ]
-
-        for (
-            (acc_name, acceptance_criterion),
-            (search_name, search_func, shake_func),
-            k,
-        ) in itertools.product(acceptance_criteria, search_functions, range(1, 8)):
-            config_name = f"vns MOVNS {acc_name} {search_name} k{k}"
 
             optimizer = VNSOptimizer(
                 problem=self.problem,
@@ -301,9 +235,8 @@ if __name__ == "__main__":
         "MOKP",
         base,
         [
-            StandardVNSInstanceRunner,
+            SharedVNSInstanceRunner,
             SVNSInstanceRunner,
-            MOVND_VNSInstanceRunner,
             PymooInstanceRunner,
         ],
         MOKPProblem,

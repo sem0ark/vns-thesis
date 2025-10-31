@@ -224,6 +224,9 @@ class ClickFilterExpression(click.ParamType):
 
         expression = value.strip()
 
+        expression = expression.replace("|", " or ")
+        expression = expression.replace(",", " and ")
+
         try:
             root_node = _tokenize_and_parse(expression)
             return FilterExpression(root_node, expression)

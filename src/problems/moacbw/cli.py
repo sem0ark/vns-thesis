@@ -16,6 +16,11 @@ from src.cli.shared import Metadata, SavedRun, SavedSolution
 from src.cli.vns_runner import run_vns_optimizer
 from src.core.abstract import OptimizerAbstract
 from src.core.termination import terminate_time_based
+from src.problems.default_configurations import (
+    get_bvns_variants,
+    get_movnd_vns_variants,
+    get_rvns_variants,
+)
 from src.problems.moacbw.problem import MOACBWProblem, MOACBWProblemPymoo
 from src.problems.moacbw.vns import shake_swap, swap_op
 from src.vns.acceptance import AcceptBatch, AcceptBeam
@@ -68,6 +73,32 @@ class VNSInstanceRunner(InstanceRunner):
             )
 
         return run
+
+
+class SharedVNSInstanceRunner(VNSInstanceRunner):
+    def get_variants(self) -> Iterable[tuple[str, Callable[[RunConfig], SavedRun]]]:
+        for config_name, optimizer in get_rvns_variants(
+            self.problem,
+            [("beam", AcceptBeam()), ("batch", AcceptBatch())],
+            [("shake_swap", shake_swap)],
+        ):
+            yield config_name, self.make_func(optimizer)
+
+        for config_name, optimizer in get_bvns_variants(
+            self.problem,
+            [("beam", AcceptBeam()), ("batch", AcceptBatch())],
+            [("op_swap", swap_op)],
+            [("shake_swap", shake_swap)],
+        ):
+            yield config_name, self.make_func(optimizer)
+
+        for config_name, optimizer in get_movnd_vns_variants(
+            self.problem,
+            [("beam", AcceptBeam()), ("batch", AcceptBatch())],
+            [("op_swap", swap_op)],
+            [("shake_swap", shake_swap)],
+        ):
+            yield config_name, self.make_func(optimizer)
 
 
 class StandardVNSInstanceRunner(VNSInstanceRunner):
