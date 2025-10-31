@@ -136,3 +136,17 @@ def composite(search_functions: list[SearchFunction]):
         yield current.flatten_solution()
 
     return search
+
+
+def composite_parallel(search_functions: list[SearchFunction]):
+    def search(initial: Solution) -> Iterable[Solution | None]:
+        current = initial
+
+        for search_function in search_functions:
+            for sol in search_function(current):
+                if not sol:
+                    yield sol
+                else:
+                    yield sol.flatten_solution()
+
+    return search

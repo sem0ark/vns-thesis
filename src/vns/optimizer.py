@@ -11,12 +11,12 @@ ShakeFunction = Callable[[Solution[T], int], Solution[T]]
 class VNSOptimizer[T](OptimizerAbstract[T]):
     def __init__(
         self,
-        name: str,
-        version: int,
         problem: Problem[T],
         search_functions: list[SearchFunction[T]],
         shake_function: ShakeFunction,
         acceptance_criterion: AcceptanceCriterion[T],
+        name: str = "",
+        version: int = 1,
     ):
         super().__init__(name, version, problem)
 

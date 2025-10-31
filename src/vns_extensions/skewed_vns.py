@@ -211,3 +211,22 @@ class AcceptBatchSkewedV7(AcceptBatch):
             return ComparisonResult.WORSE
 
         super().__init__(compare_solutions_better_skewed)
+
+
+class AcceptBatchSkewedV8(AcceptBatch):
+    def __init__(
+        self,
+        alpha: list[float],
+        distance_metric: Callable[[Solution, Solution], float],
+    ):
+        def compare_solutions_better_skewed(
+            new_solution: Solution, current_solution: Solution
+        ) -> ComparisonResult:
+            distance = distance_metric(new_solution, current_solution)
+            skewed_objectives = tuple(
+                obj_i - alpha[i] * distance
+                for i, obj_i in enumerate(new_solution.objectives)
+            )
+            return is_dominating_min(skewed_objectives, current_solution.objectives)
+
+        super().__init__(compare_solutions_better_skewed)
