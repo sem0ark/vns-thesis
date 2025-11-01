@@ -75,7 +75,7 @@ def get_rvns_variants(
         )
 
 
-def get_bvns_variants(
+def get_rvns_hybrid_variants(
     problem: Problem,
     acceptance_operators: list[tuple[str, AcceptanceCriterion]],
     neightborhoods: list[tuple[str, NeighborhoodOperator]],
@@ -94,8 +94,63 @@ def get_bvns_variants(
         ],
         range(1, 10),
     ):
-        config_name = f"vns BVNS {acc_name} {search_name} k{k}"
+        config_name = f"vns RVNS+BVNS {acc_name} {search_name} search_1_noop k{k}"
+        yield (
+            config_name,
+            VNSOptimizer(
+                problem=problem,
+                search_functions=[search_func] + [noop()] * (k - 1),
+                acceptance_criterion=acceptance_criterion,
+                shake_function=shake_func,
+                name=config_name,
+            ),
+        )
 
+        config_name = f"vns RVNS+BVNS {acc_name} {search_name} noop_1_search k{k}"
+        yield (
+            config_name,
+            VNSOptimizer(
+                problem=problem,
+                search_functions=[noop()] * (k - 1) + [search_func],
+                acceptance_criterion=acceptance_criterion,
+                shake_function=shake_func,
+                name=config_name,
+            ),
+        )
+
+
+def get_bvns_variants(
+    problem: Problem,
+    acceptance_operators: list[tuple[str, AcceptanceCriterion]],
+    neightborhoods: list[tuple[str, NeighborhoodOperator]],
+    shake_functions: list[tuple[str, ShakeFunction]],
+) -> Iterable[tuple[str, VNSOptimizer]]:
+    default_search = [
+        (f"BI {neib_name} {shake_name}", best_improvement(neightborhood), shake)
+        for shake_name, shake in shake_functions
+        for neib_name, neightborhood in neightborhoods
+    ]
+    limited_search = [
+        (
+            f"BI_{lim} {neib_name} {shake_name}",
+            best_improvement(neightborhood, max_transitions=lim),
+            shake,
+        )
+        for shake_name, shake in shake_functions
+        for neib_name, neightborhood in neightborhoods
+        for lim in range(1, 3)
+    ]
+
+    for (
+        (acc_name, acceptance_criterion),
+        (search_name, search_func, shake_func),
+        k,
+    ) in itertools.product(
+        acceptance_operators,
+        default_search + limited_search,
+        range(1, 10),
+    ):
+        config_name = f"vns BVNS {acc_name} {search_name} k{k}"
         yield (
             config_name,
             VNSOptimizer(

@@ -1,6 +1,7 @@
 import glob
 import json
 import logging
+import os
 import random
 import shutil
 from collections import defaultdict
@@ -77,6 +78,7 @@ def _load_runs(
     problem_name: str,
     instance_name: str,
     include_data=False,
+    quarantine_folder: Path | None = None,
 ) -> dict[str, list[SavedRun]]:
     """
     Loads saved run files for a given instance, returning the latest version of each unique configuration.
@@ -99,7 +101,10 @@ def _load_runs(
 
         except (json.JSONDecodeError, ValueError, KeyError, TypeError) as e:
             click.echo(f"Skipping malformed or incomplete run file {file_path}: {e}")
-            continue
+            if quarantine_folder:
+                destination_path = quarantine_folder / file_path.name
+                shutil.move(file_path, destination_path)
+                click.echo(f"Run file moved to quarantine: {destination_path}")
 
     return runs_by_name
 
@@ -220,6 +225,7 @@ class CLI:
         instance_patterns: list[str],
         filter_expression: FilterExpression,
         move_runs: bool,
+        remove_runs: bool,
     ):
         """
         Validates saved runs, moves valid ones to the archive folder,
@@ -257,7 +263,11 @@ class CLI:
 
             # Load ALL runs from storage (must include data for validation/archiving)
             all_runs_grouped = _load_runs(
-                self.storage_folder, self.problem_name, instance_name, include_data=True
+                self.storage_folder,
+                self.problem_name,
+                instance_name,
+                include_data=True,
+                quarantine_folder=self.quarantine_folder,
             )
 
             runs_to_archive_grouped = _filter_runs(all_runs_grouped, filter_expression)
@@ -281,14 +291,6 @@ class CLI:
 
                     if self._validate_run(run, problem_instance):
                         valid_runs_for_merge.append(run)
-
-                        if move_runs:
-                            destination_path = self.archive_folder / file_path.name
-                            shutil.move(file_path, destination_path)
-                            run.metadata.file_path = destination_path
-                            click.echo(
-                                f"Moved {run.metadata.instance_name} to {destination_path}"
-                            )
 
             if not valid_runs_for_merge:
                 click.echo("Warning: no available valid runs for merge. Exiting.")
@@ -325,6 +327,30 @@ class CLI:
                 f"Updated reference front saved to: {reference_front_path} ({len(reference_run.solutions)} total solutions)."
             )
             click.echo("-" * 50)
+
+            if not (move_runs or remove_runs):
+                return
+
+            for run in valid_runs_for_merge:
+                file_path = run.metadata.file_path
+                if file_path is None:
+                    click.echo(
+                        f"Error: Could not determine file path for run {run.metadata.name}. Skipping."
+                    )
+                    continue
+
+                if move_runs:
+                    destination_path = self.archive_folder / file_path.name
+                    shutil.move(file_path, destination_path)
+                    run.metadata.file_path = destination_path
+                    click.echo(
+                        f"Moved {run.metadata.instance_name} to {destination_path}"
+                    )
+                elif remove_runs:
+                    os.remove(file_path)
+                    click.echo(
+                        f"Removed {run.metadata.instance_name} instance run: {file_path.name}"
+                    )
 
     def _validate_run(
         self,
@@ -439,7 +465,11 @@ class CLI:
 
             # Use _load_runs with include_data=True
             all_runs_grouped = _load_runs(
-                self.storage_folder, self.problem_name, instance_name, include_data=True
+                self.storage_folder,
+                self.problem_name,
+                instance_name,
+                include_data=True,
+                quarantine_folder=self.quarantine_folder,
             )
 
             runs_to_validate_grouped = _filter_runs(all_runs_grouped, filter_expression)
@@ -816,8 +846,16 @@ class CLI:
             is_flag=True,
             help="Additionally move all matched files into archive folder.",
         )
+        @click.option(
+            "--remove",
+            is_flag=True,
+            help="Validate run, update reference front and remove run data.",
+        )
         def archive_command(
-            instance: list[str], filter_string: FilterExpression, move: bool
+            instance: list[str],
+            filter_string: FilterExpression,
+            move: bool,
+            remove: bool,
         ):
             """
             Validates saved solutions. Valid runs are moved to the archive folder.
@@ -825,7 +863,7 @@ class CLI:
 
             Example: script.py archive -i 'data/*.json' -f 'vns,k1 or nsga2'
             """
-            self._execute_archive_logic(instance, filter_string, move)
+            self._execute_archive_logic(instance, filter_string, move, remove)
 
         setup_logging()
         cli()

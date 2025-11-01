@@ -17,6 +17,7 @@ from src.problems.default_vns_configurations import (
     BaseVNSInstanceRunner,
     get_bvns_variants,
     get_movnd_vns_variants,
+    get_rvns_hybrid_variants,
     get_rvns_variants,
 )
 from src.problems.moscp.problem import MOSCPProblem, MOSCPProblemPymoo
@@ -58,6 +59,14 @@ class SharedVNSInstanceRunner(VNSInstanceRunner):
             yield config_name, self.make_func(optimizer)
 
         for config_name, optimizer in get_movnd_vns_variants(
+            self.problem,
+            [("beam", AcceptBeam()), ("batch", AcceptBatch())],
+            [("op_flip", flip_op)],
+            [("shake_flip", shake_flip)],
+        ):
+            yield config_name, self.make_func(optimizer)
+
+        for config_name, optimizer in get_rvns_hybrid_variants(
             self.problem,
             [("beam", AcceptBeam()), ("batch", AcceptBatch())],
             [("op_flip", flip_op)],

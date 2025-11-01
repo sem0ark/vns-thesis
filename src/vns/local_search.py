@@ -1,5 +1,6 @@
+import random
 from ast import TypeVar
-from typing import Callable, Iterable
+from typing import Any, Callable, Iterable
 
 from src.core.abstract import Solution
 from src.vns.acceptance import ComparisonResult, is_dominating_min
@@ -63,6 +64,12 @@ def best_improvement(
     return search
 
 
+def shuffled(lst: Iterable) -> list[Any]:
+    lst = list(lst)
+    random.shuffle(lst)
+    return lst
+
+
 def first_improvement(
     operator: NeighborhoodOperator,
     objective_index: int | None = None,
@@ -82,7 +89,7 @@ def first_improvement(
         transition_index = 1
 
         while True:
-            for neighbor in operator(current.flatten_solution()):
+            for neighbor in shuffled(operator(current.flatten_solution())):
                 if is_better(neighbor.objectives, current.objectives):
                     current = neighbor
                     break

@@ -17,6 +17,7 @@ from src.problems.default_vns_configurations import (
     BaseVNSInstanceRunner,
     get_bvns_variants,
     get_movnd_vns_variants,
+    get_rvns_hybrid_variants,
     get_rvns_variants,
 )
 from src.problems.mokp.problem import MOKPProblem, MOKPPymoo
@@ -24,6 +25,7 @@ from src.problems.mokp.vns import (
     flip_op,
     shake_flip,
     shake_swap,
+    swap_op,
 )
 from src.vns.acceptance import AcceptBatch, AcceptBeam
 from src.vns_extensions.skewed_vns import (
@@ -65,6 +67,14 @@ class SharedVNSInstanceRunner(VNSInstanceRunner):
             [("beam", AcceptBeam()), ("batch", AcceptBatch())],
             [("op_flip", flip_op)],
             [("shake_flip", shake_flip), ("shake_swap", shake_swap)],
+        ):
+            yield config_name, self.make_func(optimizer)
+
+        for config_name, optimizer in get_rvns_hybrid_variants(
+            self.problem,
+            [("beam", AcceptBeam()), ("batch", AcceptBatch())],
+            [("op_flip", flip_op), ("op_swap", swap_op)],
+            [("shake_flip", shake_flip)],
         ):
             yield config_name, self.make_func(optimizer)
 

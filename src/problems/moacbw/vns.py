@@ -1,26 +1,15 @@
 import random
-from typing import Any, Iterable
+from typing import Iterable
 
 from src.problems.moacbw.problem import MOACBWSolution, _MOACBWSolution
-
-
-def shuffled(lst: Iterable) -> list[Any]:
-    lst = list(lst)
-    random.shuffle(lst)
-    return lst
 
 
 def swap_op(solution: MOACBWSolution) -> Iterable[MOACBWSolution]:
     """Generates neighbors by swapping one selected item with one unselected item."""
     solution_data = solution.data
 
-    index_order = shuffled(range(solution_data.size))
-
-    for i in index_order:
-        for j in index_order:
-            if i >= j:
-                continue
-
+    for i in range(solution_data.size):
+        for j in range(i + 1, solution_data.size):
             new_data = solution_data.copy()
             new_data[i], new_data[j] = new_data[j], new_data[i]
             yield _MOACBWSolution(new_data, solution.problem)
@@ -30,9 +19,7 @@ def swap_limited_op(solution: MOACBWSolution) -> Iterable[MOACBWSolution]:
     """Generates neighbors by swapping one selected item with one unselected item."""
     solution_data = solution.data
 
-    index_order = shuffled(range(solution_data.size - 1))
-
-    for i in index_order:
+    for i in range(solution_data.size - 1):
         new_data = solution_data.copy()
         new_data[i], new_data[i + 1] = new_data[i + 1], new_data[i]
         yield _MOACBWSolution(new_data, solution.problem)

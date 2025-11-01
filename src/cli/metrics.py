@@ -316,9 +316,10 @@ def calculate_metrics(
                     epsilon=epsilon,
                     hypervolume=relative_hypervolume,
                     r_metric=relative_r_metric,
-                    inverted_generational_distance=0
-                    if epsilon == 1
-                    else (inverted_generational_distance or np.nan),
+                    inverted_generational_distance=(
+                        inverted_generational_distance
+                        or (0 if epsilon == 1 else np.nan)
+                    ),
                 )
             )
 
@@ -679,6 +680,7 @@ You can also click on graphs in legend to show/hide any specific one.
 
     # Calculate hypervolume for each run and prepare data for plotting
     plot_data = []
+    # NOTE: Assuming HV class is correctly imported from an external library
     hypervolume_reference_point = _get_hypervolume_reference_point([reference_front])
     hypervolume_indicator = HV(ref_point=hypervolume_reference_point)
 
@@ -734,6 +736,7 @@ You can also click on graphs in legend to show/hide any specific one.
     lines_dict["Reference Front"] = ref_line
 
     if filtered_runs_grouped:
+        # Assuming all runs share the same metadata structure
         metadata = list(filtered_runs_grouped.values())[0][0].metadata
         title_str = f"{metadata.problem_name.upper()}, {metadata.instance_name}"
 
@@ -747,6 +750,32 @@ You can also click on graphs in legend to show/hide any specific one.
         ax.set_title(title_str)
         ax.set_xlabel(objective_names[0])
         ax.set_ylabel(objective_names[1])
+
+    # 1. Get the extent (min/max) of the reference front
+    x_min, y_min = np.min(reference_front_flipped, axis=0)
+    x_max, y_max = np.max(reference_front_flipped, axis=0)
+
+    # 2. Calculate the range (span) and center
+    x_range = x_max - x_min
+    y_range = y_max - y_min
+
+    x_center = (x_max + x_min) / 2
+    y_center = (y_max + y_min) / 2
+
+    # 3. Determine the new half-span (half of the required range: 2 * original_range)
+    # The new total range will be 2 * x_range, so the new half-range is 1 * x_range
+    x_half_span = x_range
+    y_half_span = y_range
+
+    # 4. Set the new limits: Center +/- Half-Span
+    x_lim_low = x_center - x_half_span
+    x_lim_high = x_center + x_half_span
+
+    y_lim_low = y_center - y_half_span
+    y_lim_high = y_center + y_half_span
+
+    ax.set_xlim(x_lim_low, x_lim_high)
+    ax.set_ylim(y_lim_low, y_lim_high)
 
     ax.grid(True)
 
@@ -763,6 +792,7 @@ You can also click on graphs in legend to show/hide any specific one.
         if legend.contains(event):
             bbox = legend.get_bbox_to_anchor()
             d = {"down": 30, "up": -30}
+            # NOTE: Using Bbox requires importing Bbox from matplotlib.transforms
             bbox = Bbox.from_bounds(
                 bbox.x0, bbox.y0 + d.get(event.button, 0), bbox.width, bbox.height
             )
@@ -793,6 +823,7 @@ You can also click on graphs in legend to show/hide any specific one.
                     line.set_visible(False)
 
             for leg_line, plotted_line in legend_lines.items():
+                # Only change alpha if the line is now hidden
                 if not plotted_line.get_visible():
                     leg_line.set_alpha(0.1)
 

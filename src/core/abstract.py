@@ -87,7 +87,7 @@ class Problem[T]:
         num_variables: int,
         num_objectives: int,
         num_constraints: int,
-        problem_name: str = "",
+        problem_name: str,
         objective_names: list[str] | None = None,
     ) -> None:
         super().__init__()
