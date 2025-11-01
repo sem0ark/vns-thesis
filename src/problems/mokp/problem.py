@@ -6,6 +6,7 @@ import numpy as np
 from pymoo.core.problem import ElementwiseProblem
 
 from src.core.abstract import Problem, Solution
+from src.problems.default_pymoo_configurations import PymooProblemConfig
 
 type MOKPSolution = Solution[np.ndarray]
 
@@ -148,3 +149,17 @@ class MOKPPymoo(ElementwiseProblem):
         # This will be an array of values, one for each constraint.
         total_weights = np.sum(x * self.problem_instance.weights, axis=1)
         out["G"] = total_weights - self.problem_instance.capacity
+
+    def to_config(self):
+        return PymooProblemConfig(
+            problem_instance=self.problem_instance,
+            serialize_output=lambda result: [
+                Solution(
+                    objectives=objectives.tolist(),
+                    data=data.tolist(),
+                    problem=self.problem_instance,
+                )
+                for objectives, data in zip(result.F, np.round(result.X).astype(int))
+            ],
+            pymoo_problem=self,
+        )

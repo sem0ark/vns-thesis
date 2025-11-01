@@ -1,21 +1,20 @@
-import itertools
-from itertools import product
+from itertools import chain
 from pathlib import Path
-from typing import Callable, Iterable, cast
+from typing import Callable, Iterable
 
 import numpy as np
-from pymoo.algorithms.moo.nsga2 import NSGA2
-from pymoo.algorithms.moo.spea2 import SPEA2
 from pymoo.operators.sampling.rnd import BinaryRandomSampling
-from pymoo.optimize import minimize
-from pymoo.termination.max_time import TimeBasedTermination
 
-from src.cli.problem_cli import CLI, InstanceRunner, RunConfig
-from src.cli.shared import Metadata, SavedRun, SavedSolution
-from src.cli.vns_runner import run_vns_optimizer
-from src.core.abstract import OptimizerAbstract
-from src.core.termination import terminate_time_based
-from src.problems.default_configurations import (
+from src.cli.problem_cli import CLI, RunConfig
+from src.cli.shared import SavedRun
+from src.core.abstract import AcceptanceCriterion
+from src.problems.default_pymoo_configurations import (
+    BasePymooInstanceRunner,
+    get_nsga_variants,
+    get_spea_variants,
+)
+from src.problems.default_vns_configurations import (
+    BaseVNSInstanceRunner,
     get_bvns_variants,
     get_movnd_vns_variants,
     get_rvns_variants,
@@ -27,8 +26,6 @@ from src.problems.mokp.vns import (
     shake_swap,
 )
 from src.vns.acceptance import AcceptBatch, AcceptBeam
-from src.vns.local_search import best_improvement, noop
-from src.vns.optimizer import VNSOptimizer
 from src.vns_extensions.skewed_vns import (
     AcceptBatchSkewedV1,
     AcceptBatchSkewedV2,
@@ -41,35 +38,9 @@ from src.vns_extensions.skewed_vns import (
 )
 
 
-class VNSInstanceRunner(InstanceRunner):
+class VNSInstanceRunner(BaseVNSInstanceRunner[MOKPProblem]):
     def __init__(self, config: RunConfig):
-        super().__init__(config)
-        self.problem = MOKPProblem.load(str(config.instance_path))
-
-    def get_variants(self) -> Iterable[tuple[str, Callable[[RunConfig], SavedRun]]]:
-        return []
-
-    def make_func(self, optimizer: OptimizerAbstract):
-        def run(config: RunConfig):
-            solutions = run_vns_optimizer(
-                optimizer, terminate_time_based(config.run_time_seconds)
-            )
-
-            return SavedRun(
-                metadata=Metadata(
-                    run_time_seconds=int(config.run_time_seconds),
-                    name=optimizer.name,
-                    version=18,
-                    problem_name="MOKP",
-                    instance_name=config.instance_path.stem,
-                ),
-                solutions=[
-                    SavedSolution(sol.objectives, sol.to_json_serializable())
-                    for sol in solutions
-                ],
-            )
-
-        return run
+        super().__init__(config, MOKPProblem.load(str(config.instance_path)), 18)
 
 
 class SharedVNSInstanceRunner(VNSInstanceRunner):
@@ -104,7 +75,7 @@ class SVNSInstanceRunner(VNSInstanceRunner):
 
         alpha_range = [0.25, 0.5, 1, 2, 3]
         dist_func = MOKPProblem.calculate_solution_distance_2
-        acceptance_criteria = [
+        acceptance_criteria: list[tuple[str, AcceptanceCriterion]] = [
             (
                 f"skewed_v{acc_idx} {name} a{mult}",
                 acc(alpha_weights * mult, dist_func),
@@ -125,108 +96,39 @@ class SVNSInstanceRunner(VNSInstanceRunner):
             )
         ]
 
-        search_functions = [
-            ("noop shake_flip", noop(), shake_flip),
-            ("BI op_flip shake_flip", best_improvement(flip_op), shake_flip),
-            (
-                "BI_1 op_flip shake_flip",
-                best_improvement(flip_op, max_transitions=1),
-                shake_flip,
+        for config_name, optimizer in chain(
+            get_rvns_variants(
+                self.problem,
+                acceptance_criteria,
+                [("shake_flip", shake_flip), ("shake_swap", shake_swap)],
             ),
-            (
-                "BI_2 op_flip shake_flip",
-                best_improvement(flip_op, max_transitions=2),
-                shake_flip,
+            get_bvns_variants(
+                self.problem,
+                acceptance_criteria,
+                [("op_flip", flip_op)],
+                [("shake_flip", shake_flip), ("shake_swap", shake_swap)],
             ),
-        ]
-
-        for (
-            (acc_name, acceptance_criterion),
-            (search_name, search_func, shake_func),
-            k,
-        ) in itertools.product(acceptance_criteria, search_functions, range(1, 8)):
-            config_name = f"vns SVNS {acc_name} {search_name} k{k}"
-
-            optimizer = VNSOptimizer(
-                problem=self.problem,
-                search_functions=[search_func] * k,
-                acceptance_criterion=acceptance_criterion,
-                shake_function=shake_func,
-                name=config_name,
-            )
-
+        ):
+            config_name = config_name.replace("RVNS", "SVNS").replace("RVNS", "SVNS")
             yield config_name, self.make_func(optimizer)
 
 
-class PymooInstanceRunner(InstanceRunner):
+class PymooInstanceRunner(BasePymooInstanceRunner):
     def __init__(self, config: RunConfig):
-        super().__init__(config)
-        self.problem = MOKPPymoo(MOKPProblem.load(str(config.instance_path)))
+        super().__init__(
+            config, MOKPPymoo(MOKPProblem.load(str(config.instance_path))).to_config()
+        )
 
     def get_variants(self) -> Iterable[tuple[str, Callable[[RunConfig], SavedRun]]]:
-        algorithms = [
-            ("NSGA2", NSGA2),
-            ("SPEA2", SPEA2),
-        ]
-        population_sizes = [50, 100, 150, 200, 300, 400, 500, 700, 1000]
+        for config_name, algorithm in get_nsga_variants(
+            self.problem_config, BinaryRandomSampling()
+        ):
+            yield (config_name, self.make_func(config_name, algorithm))
 
-        for (
-            (algorithm_name, algorithm),
-            population,
-        ) in product(algorithms, population_sizes):
-            name = f"pymoo {algorithm_name} pop_{population}"
-            yield (
-                name,
-                self.make_func(
-                    name,
-                    algorithm(
-                        sampling=BinaryRandomSampling(),
-                        eliminate_duplicates=True,
-                        pop_size=population,
-                    ),
-                ),
-            )
-
-    def make_func(self, name: str, algorithm: NSGA2 | SPEA2):
-        def run(config: RunConfig):
-            res = minimize(
-                problem=self.problem,
-                algorithm=algorithm,
-                termination=TimeBasedTermination(config.run_time_seconds),
-                verbose=True,
-            )
-
-            results = res.F
-            if results is None:
-                raise ValueError("Expected res.F to be non-null")
-
-            solution_data = cast(None | np.ndarray, res.X)
-            if solution_data is None:
-                raise ValueError("Expected res.X to be non-null")
-
-            # for some reason even with binary sampling, result is still float
-            solution_data = np.round(solution_data).astype(int)
-
-            solutions_data = [
-                SavedSolution(
-                    cast(np.ndarray, objectives).tolist(),
-                    cast(np.ndarray, data).tolist(),
-                )
-                for objectives, data in zip(results, solution_data)
-            ]
-
-            return SavedRun(
-                metadata=Metadata(
-                    run_time_seconds=int(config.run_time_seconds),
-                    name=name,
-                    version=5,
-                    problem_name="MOKP",
-                    instance_name=Path(config.instance_path).stem,
-                ),
-                solutions=solutions_data,
-            )
-
-        return run
+        for config_name, algorithm in get_spea_variants(
+            self.problem_config, BinaryRandomSampling()
+        ):
+            yield (config_name, self.make_func(config_name, algorithm))
 
 
 if __name__ == "__main__":

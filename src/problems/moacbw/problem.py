@@ -7,6 +7,7 @@ from pymoo.core.problem import ElementwiseProblem
 
 from src.cli.utils import lru_cache_custom_hash_key
 from src.core.abstract import Problem, Solution
+from src.problems.default_pymoo_configurations import PymooProblemConfig
 
 type MOACBWSolution = Solution[np.ndarray]
 
@@ -240,7 +241,21 @@ class MOACBWProblemPymoo(ElementwiseProblem):
         Evaluate a single solution vector 'x' (vector of N floats).
         """
         # np.argsort returns the indices that would sort the array.
-        # Basically ranking the results from 0 to N - 1
+        # Basically ranking the results from 0 to N - 1 -> graph vertx permutation
         permutation_array = np.argsort(x).astype(int)
         z1, z2 = _MOACBWSolution(permutation_array, self.problem_instance).objectives
         out["F"] = np.array([z1, z2], dtype=float)
+
+    def to_config(self):
+        return PymooProblemConfig(
+            problem_instance=self.problem_instance,
+            serialize_output=lambda result: [
+                Solution(
+                    objectives=objectives.tolist(),
+                    data=data.tolist(),
+                    problem=self.problem_instance,
+                )
+                for objectives, data in zip(result.F, np.argsort(result.X).astype(int))
+            ],
+            pymoo_problem=self,
+        )
